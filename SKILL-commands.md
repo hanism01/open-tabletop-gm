@@ -34,6 +34,8 @@ Do NOT run `git init` or any git commands in campaign directories.
 | `/gm npc <name>` | Generate or retrieve an NPC. Write to npcs.md / npcs-full.md. |
 | `/gm import <filepath> [campaign-name]` | Import a pre-written campaign source (PDF, MD, DOCX, TXT). See `/gm import` procedure below. |
 | `/gm arc [status\|advance\|revise\|view]` | Manage the dynamic campaign arc. See `/gm arc` procedure below. |
+| `/gm path [<new-path>\|reset]` | View or configure where campaign data is stored (`GM_CAMPAIGN_ROOT`). Follow `/gm path` branch. |
+| `/gm update [--check]` | Pull the latest skill changes from origin/main. Follow `/gm update` branch. |
 
 ---
 
