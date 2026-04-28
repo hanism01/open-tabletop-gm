@@ -53,6 +53,29 @@ Start or stop the display companion independently of session load.
 
 ---
 
+## `/gm path [<new-path> | reset]`
+
+View or configure where campaign and character data is stored. Wraps the `GM_CAMPAIGN_ROOT` env var (default `~/open-tabletop-gm`).
+
+- No args → `python3 <skill-base>/scripts/path_config.py` and show output.
+- New path → `python3 <skill-base>/scripts/path_config.py set <path>`. Confirm to user, then remind them the change only takes effect in new shells (or after they `source` their rc on macOS/Linux).
+- `reset` → `python3 <skill-base>/scripts/path_config.py reset`.
+
+Persistence is via shell rc on macOS/Linux and via `setx` on Windows. Existing campaigns are not auto-migrated; `paths.find_campaign()` handles legacy fallback + copy-on-access.
+
+---
+
+## `/gm update [--check]`
+
+Pull the latest skill changes from `origin/main`.
+
+- No args → `python3 <skill-base>/scripts/update_skill.py` and stream output (script prompts before pulling).
+- `--check` → `python3 <skill-base>/scripts/update_skill.py --check` — report status without pulling.
+- The script refuses to update if the working tree is dirty and uses `--ff-only` so it never silently merges divergent history.
+- After a successful pull, remind the user to restart their GM session so the new `SKILL.md` and `SKILL-branches.md` are reloaded.
+
+---
+
 ## ACTIVE — Narration Turn
 
 Each player message during an active session:
