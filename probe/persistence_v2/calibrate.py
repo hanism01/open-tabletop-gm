@@ -32,10 +32,14 @@ async def main() -> int:
                 response=response, fact_description=fact,
                 http=http, api_key=api_key,
             )
-            mark = "✓" if r.passed == expected else "✗"
-            print(f"{mark} expected={expected!s:<5} got={r.passed!s:<5} "
-                  f"conf={r.confidence:.2f} :: {r.reason[:100]}")
-            if r.passed == expected:
+            mark = "✓" if r.majority_pass == expected else "✗"
+            per_judge = ", ".join(
+                f"{pj.judge.split('/')[-1]}={'P' if pj.passed else 'F'}"
+                for pj in r.per_judge
+            )
+            print(f"{mark} expected={expected!s:<5} ensemble={r.majority_pass!s:<5} "
+                  f"pass_rate={r.pass_rate:.2f} ({per_judge})")
+            if r.majority_pass == expected:
                 passed += 1
             else:
                 failed += 1

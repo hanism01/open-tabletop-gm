@@ -39,7 +39,15 @@ def main() -> int:
     p.add_argument("--trials", type=int, default=2)
     p.add_argument("--concurrency", type=int, default=4)
     p.add_argument("--out-dir", default="probe/persistence_v2/results")
+    p.add_argument("--judges", default="",
+                   help="Comma-separated OpenRouter judge routes. "
+                        "Empty = use DEFAULT_JUDGE_MODELS (5-judge ensemble).")
     args = p.parse_args()
+    from .judge import DEFAULT_JUDGE_MODELS
+    judge_models = (
+        [j.strip() for j in args.judges.split(",") if j.strip()]
+        if args.judges else DEFAULT_JUDGE_MODELS
+    )
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
@@ -60,14 +68,18 @@ def main() -> int:
     print(f"Concurrency cap: {args.concurrency}", file=sys.stderr)
     print(f"Out dir: {out_dir}", file=sys.stderr)
 
+    print(f"Judge ensemble ({len(judge_models)}): "
+          f"{', '.join(j.split('/')[-1] for j in judge_models)}",
+          file=sys.stderr)
     results = asyncio.run(run_battery(
         subject_routes=subjects, bible_names=bibles, modes=modes,
         trials=args.trials, api_key=api_key,
+        judge_models=judge_models,
         concurrency=args.concurrency, out_dir=out_dir,
     ))
     print(f"Completed {len(results)}/{total} trials", file=sys.stderr)
 
-    rollup = aggregate(results)
+    rollup = aggregate(results, judge_models=judge_models)
     (out_dir / "rollup.json").write_text(json.dumps(rollup, indent=2))
     write_report_md(rollup, out_dir / "rollup.md", label="persistence_v2")
     print(f"\nRollup: {out_dir / 'rollup.md'}", file=sys.stderr)

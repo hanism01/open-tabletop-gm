@@ -2,7 +2,7 @@
 
 A methodologically rigorous probe that measures whether a model **remembers** what the bible established, across a 20-turn conversation. Differs from the original `narrative_probe.py` (single-turn × 12 scenarios) by holding state across turns the way a real play session does.
 
-This probe was originally built for [Neural Initiative](https://github.com/Bobby-Gray/neuralinitiative) — the SaaS sibling of `open-tabletop-gm` — and ported here in cleaned-up form so the open-source community can run the same evaluation against any OpenRouter-routable model.
+Built for `open-tabletop-gm` users + anyone who wants to know which model their preferred GM stack should run on. Pairs naturally with `narrative_probe.py` (atmosphere / npc_craft / gm_craft scoring) — the two probes measure different things and a complete model evaluation runs both.
 
 ## What it actually measures
 
@@ -117,6 +117,6 @@ python -m probe.persistence_v2.calibrate
 - **Single-judge bias.** One LLM judges all responses. Systematic judge bias affects all subjects equally, but it's still bias. An N-judge ensemble (3-5 models, inter-rater agreement reported) would close this.
 - **Quality vs persistence.** This probe measures memory, not prose quality. A model can ace persistence while writing wooden prose, or vice versa. The original `narrative_probe.py` covers atmosphere / npc_craft / gm_craft separately; run both for a complete picture.
 
-## Provenance
+## License
 
-Originally built for [Neural Initiative](https://github.com/Bobby-Gray/neuralinitiative); methodology and code refined in [this analysis doc](https://github.com/Bobby-Gray/neuralinitiative/blob/main/docs/probes/sonnet_vs_gemini_2026-06-10.md). Ported here under the AGPL-3.0-or-later license that covers the rest of `open-tabletop-gm`.
+AGPL-3.0-or-later, same as the rest of `open-tabletop-gm`.
