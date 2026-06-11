@@ -318,6 +318,7 @@ def aggregate(
                 continue
             agg[mode] = {
                 "persistence_mean": round(mean([c["persistence_mean"] for c in same]), 1),
+                "soft_persistence_mean": round(mean([c.get("soft_persistence_mean", 0.0) for c in same]), 1),
                 "weighted_persistence_mean": round(mean([c["weighted_persistence_mean"] for c in same]), 1),
                 "avg_latency_ms": round(mean([c["avg_latency_ms"] for c in same]), 0),
             }
