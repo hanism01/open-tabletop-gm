@@ -76,41 +76,54 @@ join URL lands in Cloudflare logs and browser history despite the redirect.
   compare — no new dependency. TTL is checked on **every** verify (`issued_at`
   vs now); expired tokens 403.
 - Revocation list `display/.revoked.json` holds revoked `sid`s and consumed
-  `jti`s. `gm_invite.py --revoke <player>` revokes their active session; reissue
-  revokes the prior one. `--list` shows active players.
+  `jti`s. All reads/writes go through a module-level `threading.Lock` + atomic
+  temp-file rename (the pattern already used for `_persist_tail`) so concurrent
+  `/j` hits cannot double-consume a `jti`. Consume-and-check is one locked
+  critical section. `gm_invite.py --revoke <player>` revokes their active
+  session; reissue revokes the prior one. `--list` shows active players.
 - `/j/<join_token>`: verify signature + TTL + not-yet-consumed → record `jti`
   consumed → mint session token → set **`HttpOnly; Secure; SameSite=Lax`**
   cookie → redirect to `/`. No token ever appears in page HTML.
 
 ### 3. Identity middleware — fail-closed, authoritative
 
-Two audit-critical rules govern this section:
+Rules governing this section:
 
-- **Fail-closed and authoritative.** A single `before_request` hook is the
-  *only* authority on access for every state-changing route. The legacy
-  `_token_ok()` (which returns `True` whenever the server runs without `--lan`,
-  gm-display-app.py:385-388 — i.e. always, in tunnel mode) is **removed from
-  the auth path**; write routes must not be reachable through any code path that
-  fails open. Default posture: no valid identity → 403, no rate-limit
-  fallthrough.
-- **Never infer GM trust from `remote_addr` behind the tunnel.** cloudflared
-  connects to `localhost:5001`, so `request.remote_addr` is `127.0.0.1` for
-  *every* remote request — localhost-trust would hand any internet caller full
-  GM access. Detection: a request carrying `CF-Connecting-IP` /
-  `X-Forwarded-For` is tunnelled and therefore **untrusted**, regardless of
-  `remote_addr`. The GM gets a **separate loopback-only credential** (a
-  `.gm_secret` bearer token the local display/`send.py` sends), never IP
-  inference. A tunnelled request presenting no player cookie is a player-auth
-  failure → 403.
+- **Fail-closed and authoritative over reads *and* writes.** A single
+  `before_request` hook is the *only* access authority, and it covers **every
+  identity-bearing route including `GET /stream`** — not just state-changing
+  ones. `/stream` today (gm-display-app.py:2456-2535) replays the full text log,
+  stats, staged inputs, and dice state to anyone who connects, and registers the
+  client under an attacker-supplied `?character=` (line 2463) with no identity
+  check — so a tunnelled stranger registering as `kara` would receive Kara's
+  addressed feedback. Fix: `before_request` gates `/stream`; a cookieless
+  tunnelled stream is rejected; the bound character comes from `g.identity`,
+  never `request.args`. The legacy `_token_ok()` (returns `True` whenever the
+  server runs without `--lan`, lines 385-388 — i.e. always, in tunnel mode) is
+  **removed from the auth path**. Default: no valid identity → 403, no
+  rate-limit fallthrough.
+- **`.gm_secret` is the sole GM gate; header detection is advisory only.** The
+  app **cannot** cryptographically distinguish a genuine cloudflared hop from a
+  direct `localhost:5001` connection, so GM trust rests entirely on a
+  loopback-only bearer secret `display/.gm_secret` (mode 0600) presented in a
+  named header (section 5). `remote_addr == 127.0.0.1` grants **nothing** on its
+  own. `CF-Connecting-IP` / `X-Forwarded-For` presence is used only as
+  defense-in-depth to *downgrade* a request to untrusted — never to upgrade one.
+  (Safe direction: a client cannot strip the `CF-Connecting-IP` Cloudflare
+  injects at its edge.)
+- **Kill the second localhost-trust path.** `_device_ok` auto-approves any
+  request from `127.0.0.1`/`::1` (line 287) — i.e. every tunnelled request. This
+  slice removes that localhost auto-approve (or deletes `_device_ok` as dead
+  code); device state must never be inferred from `remote_addr`.
 
 Identity resolution stashes `g.identity = {player_id, character} | None` (or a
 `gm` marker for the authenticated local GM).
 
-- **Attribution rule:** input endpoints derive `character` from `g.identity`,
-  **not** from request body / query param. The self-declared `?character=` on
-  `/stream` (gm-display-app.py:2463) and the body `character` fields on the
-  input routes are ignored for authenticated players; only the authenticated GM
-  may act on behalf of a named character.
+- **Attribution rule:** input *and stream* endpoints derive `character` from
+  `g.identity`, **not** from request body / query param. The self-declared
+  `?character=` on `/stream` and the body `character` fields on the input routes
+  are ignored for authenticated players; only the authenticated GM may act on
+  behalf of a named character.
 
 ### 3b. Message envelope — schema now, migration deferred
 
@@ -137,19 +150,30 @@ envelope behind a compatibility shim.
 - `_broadcast_to` must **normalize the character identically** to registration
   (lowercased, `[:48]`) and push to **all** matching queues — a player may have
   more than one connected device.
-- **SSE survives the tunnel + worker model — prove it first.** The pre-build
-  prototype is a *live tunnel* test, not just in-app: it must confirm (a)
-  Cloudflare does not buffer/compress the `text/event-stream` so events arrive
-  in real time, and (b) Flask serves long-lived SSE concurrently — `app.run`
-  needs `threaded=True` (or gunicorn with an async worker) or SSE connections
-  block every other request. If either fails, transport is reconsidered before
-  any further code.
+- **SSE survives the tunnel — prove it first.** The pre-build prototype is a
+  *live tunnel* test: confirm Cloudflare does not buffer/compress the
+  `text/event-stream` so events arrive in real time. (Flask concurrency is
+  already handled — `app.run(threaded=True)` at gm-display-app.py:2601 — so no
+  worker change is needed; only the edge-buffering behaviour is unverified.) If
+  it fails, transport is reconsidered before any further code.
 
 ### 5. Audit fixes folded in
 
-- **CORS:** replace blanket `CORS(app)` with an allow-list = the tunnel origin
-  (+ `localhost` for local dev). State-changing routes require a same-origin /
-  identity check even on localhost.
+- **GM auth header:** the GM credential is sent as a single named header
+  `X-GM-Secret` carrying `.gm_secret`. `send.py` (currently `X-DND-Token`,
+  send.py:118) and `check_input.py` (currently `X-Token`, check_input.py:91)
+  are both updated to this header and the server verifies it with
+  `hmac.compare_digest`. Reconciling the two inconsistent legacy headers is part
+  of this slice.
+- **CORS + CSRF:** replace blanket `CORS(app)` with an allow-list = the tunnel
+  origin (+ `localhost` for dev). Because auth is now cookie-based, every write
+  route additionally enforces an explicit **`Origin`/`Referer` allow-list
+  check** (SameSite=Lax alone does not stop top-level form POSTs). No valid
+  origin → 403.
+- **Rate limiting:** key `_rate_ok` on `CF-Connecting-IP` (falling back to
+  `remote_addr` only for local dev). Keyed on `remote_addr` it is always
+  `127.0.0.1` behind the tunnel — one shared bucket lets one player DoS all and
+  removes per-IP brute-force protection.
 - **`/player-input`:** route through `_sanitize_input` + `_char_ok` (parity
   with the stronger `/player-input/stage` path).
 - **Token-in-HTML:** removed; identity is cookie-based (section 2).
@@ -178,7 +202,10 @@ Unauthenticated request ─▶ before_request ─▶ 403 (no rate-limit fallthro
 | `before_request` identity | authoritative fail-closed resolve of `g.identity`; tunnel-aware GM trust | token lib, `.gm_secret` |
 | GM loopback credential | `.gm_secret` bearer for local GM/`send.py`; never IP-inferred | `secrets` |
 | `_broadcast_to` | addressed server→player SSE delivery, normalized, all devices | `_client_chars` |
-| CORS + sanitize fixes | close audit findings | existing sanitizers |
+| CORS + CSRF + rate-limit fixes | origin allow-list on writes, `CF-Connecting-IP` rate key | existing sanitizers |
+| `/stream` guard | gate read path, bind character from `g.identity` | `before_request` |
+| device auto-approve removal | kill `_device_ok` localhost trust | — |
+| GM header reconciliation | `X-GM-Secret` in `send.py` + `check_input.py` | `.gm_secret` |
 | tunnel config + docs | expose localhost over the internet | cloudflared |
 
 ## Error handling
@@ -193,9 +220,20 @@ Unauthenticated request ─▶ before_request ─▶ 403 (no rate-limit fallthro
 
 - **Attribution:** simulate two cookie'd clients; assert each input is tagged
   with the correct character regardless of body/query params.
-- **Fail-closed:** a tunnelled request (carries `CF-Connecting-IP`, no cookie)
-  cannot reach any write route or the GM path — 403. Explicitly assert the
-  removed `_token_ok()` fail-open path is unreachable.
+- **Fail-closed (reads too):** a tunnelled request (carries `CF-Connecting-IP`,
+  no cookie) cannot reach any write route, the GM path, **or `GET /stream`** —
+  403. A cookie'd player cannot register the stream under a different
+  character's name via `?character=`. Explicitly assert the removed
+  `_token_ok()` fail-open path is unreachable.
+- **No IP-inferred trust:** a tunnelled request with `remote_addr` 127.0.0.1
+  gets neither GM access nor device auto-approval; `_device_ok` localhost
+  auto-approve is gone.
+- **Rate limit isolation:** two players behind the tunnel (distinct
+  `CF-Connecting-IP`) do not share one bucket.
+- **CSRF:** a write POST with a disallowed `Origin` is rejected even with a
+  valid cookie.
+- **jti race:** concurrent `/j` on the same join token consumes it exactly once
+  (one 200, the rest 403).
 - **GM loopback:** local GM with `.gm_secret` gets GM access; the same request
   shape arriving with a tunnel header does not.
 - **Rejection:** unauthenticated and tampered-token requests to every write
