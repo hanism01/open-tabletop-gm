@@ -16,6 +16,9 @@ display/narration_target
 display/roll_prefs.json
 display/input_log.json
 display/player_input.json
+display/.invite_secret
+display/.gm_secret
+display/.revoked.json
 
 # SRD dataset (generated — run build_srd.py)
 systems/dnd5e/data/dnd5e_srd.json

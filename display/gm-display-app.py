@@ -32,7 +32,7 @@ import sys
 import threading
 from collections import deque
 from typing import Optional
-from flask import Flask, Response, request, render_template, jsonify
+from flask import Flask, Response, request, render_template, jsonify, g, redirect
 from flask_cors import CORS
 
 _DISPLAY_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -40,6 +40,23 @@ _SKILL_DIR    = os.path.dirname(_DISPLAY_DIR)
 SCRIPTS_DIR   = os.path.join(_SKILL_DIR, "scripts")
 LOG_FILE      = os.path.join(_DISPLAY_DIR, "text_log.json")
 _LOG_FALLBACK = LOG_FILE
+
+# ── Remote-play identity (Slice 0) ───────────────────────────────────────────
+# NB: _DISPLAY_DIR is a plain str — wrap it once. tokens.py lives beside this
+# file, so ensure _DISPLAY_DIR is importable before importing it.
+_IDENTITY_DIR = pathlib.Path(_DISPLAY_DIR)
+if str(_IDENTITY_DIR) not in sys.path:
+    sys.path.insert(0, str(_IDENTITY_DIR))
+import tokens  # noqa: E402
+_INVITE_SECRET = tokens.ensure_secret(_IDENTITY_DIR / ".invite_secret")
+_GM_SECRET = tokens.ensure_secret(_IDENTITY_DIR / ".gm_secret")
+_REVOCATION = tokens.RevocationStore(_IDENTITY_DIR / ".revoked.json")
+
+_JOIN_DENIED_HTML = (
+    "<!doctype html><html><body style='font-family:sans-serif;text-align:center;"
+    "padding-top:4em'><h2>This join link is not valid</h2>"
+    "<p>It may have expired or already been used — ask your GM for a new link.</p>"
+    "</body></html>")
 
 # SRD lookup module — degrades silently if dataset not built
 if SCRIPTS_DIR not in sys.path:
@@ -1135,6 +1152,25 @@ def _load_ui_manifest() -> str:
         return "null"
     # Compact, and neutralize any "</script>" that could break the inline tag.
     return json.dumps(manifest, separators=(",", ":")).replace("<", "\\u003c")
+
+
+@app.route("/j/<path:token>")
+def join(token):
+    payload = tokens.verify(token, secret=_INVITE_SECRET, kind="join")
+    if payload is None or not _REVOCATION.consume_jti(payload["jti"]):
+        return _JOIN_DENIED_HTML, 403
+    session_token = tokens.mint_session(
+        payload["player_id"], payload["character"], payload["campaign"],
+        secret=_INVITE_SECRET)
+    sid = tokens.verify(session_token, secret=_INVITE_SECRET, kind="session")["sid"]
+    _REVOCATION.set_active(payload["player_id"], sid)
+    resp = redirect("/")
+    # Secure only off-localhost: Chrome/Safari drop Secure cookies on plain
+    # http, which would break local dev; behind the tunnel the page is https.
+    resp.set_cookie("gm_session", session_token, max_age=tokens.SESSION_TTL_S,
+                    httponly=True, samesite="Lax",
+                    secure=not request.host.startswith(("localhost", "127.0.0.1")))
+    return resp
 
 
 @app.route("/")
