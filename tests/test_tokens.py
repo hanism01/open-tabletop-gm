@@ -50,6 +50,31 @@ class TokenSignVerifyTests(unittest.TestCase):
         for junk in ("", "not-a-token", "a.b", "..", "aGk." + "0" * 64):
             self.assertIsNone(tokens.verify(junk, secret=SECRET, kind="join", now=0))
 
+    def test_non_ascii_sig_does_not_raise(self):
+        # hmac.compare_digest raises TypeError on non-ASCII str args; verify()
+        # must return None instead of propagating.
+        self.assertIsNone(tokens.verify("aGk.日本", secret=SECRET, kind="join", now=0))
+
+    def test_non_hex_sig_rejected(self):
+        self.assertIsNone(tokens.verify("aGk.zz", secret=SECRET, kind="join", now=0))
+
+    def test_oversized_token_rejected(self):
+        huge = "a" * 5000 + "." + "0" * 64
+        self.assertIsNone(tokens.verify(huge, secret=SECRET, kind="join", now=0))
+
+    def test_nonpositive_ttl_rejected(self):
+        t = tokens.mint_join("kara", "Kara", "camp1", secret=SECRET, now=1000, ttl_s=0)
+        self.assertIsNone(tokens.verify(t, secret=SECRET, kind="join", now=1000))
+
+    def test_bool_ttl_and_issued_rejected(self):
+        # type(x) is int must reject bools (isinstance(True, int) is True in Python).
+        body = tokens._b64(tokens.json.dumps(
+            {"k": "join", "player_id": "kara", "character": "Kara", "campaign": "camp1",
+             "jti": "x", "issued_at": True, "ttl_s": 100},
+            separators=(",", ":")).encode())
+        sig = tokens._sign(body, SECRET)
+        self.assertIsNone(tokens.verify(body + "." + sig, secret=SECRET, kind="join", now=0))
+
 
 class RevocationStoreTests(unittest.TestCase):
     def setUp(self):
@@ -85,6 +110,21 @@ class RevocationStoreTests(unittest.TestCase):
         self.assertTrue(self.store.is_sid_revoked("s1"))
         self.assertFalse(self.store.is_sid_revoked("s2"))
 
+    def test_set_active_same_sid_twice_does_not_self_revoke(self):
+        self.store.set_active("kara", "s1")
+        prior = self.store.set_active("kara", "s1")
+        self.assertEqual(prior, "s1")
+        self.assertFalse(self.store.is_sid_revoked("s1"))
+
+    def test_corrupt_store_fails_closed(self):
+        self.store.path.write_bytes(b"not json garbage {{{")
+        with self.assertRaises(RuntimeError):
+            self.store.consume_jti("j1")
+
+    def test_missing_store_file_is_legitimate_empty(self):
+        # Never-written file must not raise — only corruption should.
+        self.assertFalse(self.store.is_jti_consumed("j1"))
+
     def test_persistence_across_instances(self):
         self.store.consume_jti("j1")
         self.store.revoke_sid("s1")
@@ -101,6 +141,40 @@ class SecretFileTests(unittest.TestCase):
             self.assertEqual(len(s1), 64)  # token_hex(32)
             self.assertEqual(p.stat().st_mode & 0o777, 0o600)
             self.assertEqual(tokens.ensure_secret(p), s1)
+
+    def test_ensure_secret_rejects_empty_preexisting_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / ".invite_secret"
+            p.write_text("")
+            with self.assertRaises(ValueError):
+                tokens.ensure_secret(p)
+
+    def test_ensure_secret_rejects_malformed_preexisting_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / ".invite_secret"
+            p.write_text("not-hex-zz")
+            with self.assertRaises(ValueError):
+                tokens.ensure_secret(p)
+
+    def test_ensure_secret_no_transient_permissive_window(self):
+        # Simulate concurrent first-callers: the O_EXCL create must mean a
+        # second caller reads back the already-secured file, never creates
+        # a second 0644-then-chmod window.
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / ".invite_secret"
+            results = []
+            errors = []
+            def worker():
+                try:
+                    results.append(tokens.ensure_secret(p))
+                except Exception as e:  # noqa: BLE001
+                    errors.append(e)
+            threads = [threading.Thread(target=worker) for _ in range(8)]
+            for t in threads: t.start()
+            for t in threads: t.join()
+            self.assertEqual(errors, [])
+            self.assertEqual(len(set(results)), 1)
+            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":
