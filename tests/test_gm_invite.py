@@ -63,6 +63,13 @@ class GmInviteTests(unittest.TestCase):
         out = run_invite(self.display, "-c", "c", "list")
         self.assertIn("kara", out.stdout)
 
+    def test_corrupt_revocation_store_surfaces_plain_error(self):
+        (self.display / ".revoked.json").write_text("not json {{{")
+        out = run_invite(self.display, "-c", "c", "list")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("error:", out.stderr)
+        self.assertNotIn("Traceback", out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
