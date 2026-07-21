@@ -72,7 +72,7 @@ FLASK_URL   = f"{BASE_URL}/chunk"
 STATS_URL   = f"{BASE_URL}/stats"
 HEALTH_URL  = f"{BASE_URL}/health"
 DICE_REQ_URL = f"{BASE_URL}/dice-request"
-TOKEN_FILE  = str(_DIR / ".token")
+TOKEN_FILE  = str(_DIR / ".gm_secret")
 TIMEOUT     = 8.0
 RETRIES     = 1                # one retry on timeout/connection error
 CHUNK_LIMIT = 3500             # paragraph-split text bodies above this many chars
@@ -115,7 +115,7 @@ def _post(url: str, data: bytes, token: str) -> bool:
     """
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["X-DND-Token"] = token
+        headers["X-GM-Secret"] = token
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     attempts = RETRIES + 1
     last_err: "Exception | None" = None
@@ -190,7 +190,7 @@ def _verify_health() -> "dict | None":
     headers = {}
     token = _read_token()
     if token:
-        headers["X-DND-Token"] = token
+        headers["X-GM-Secret"] = token
     req = urllib.request.Request(HEALTH_URL, headers=headers, method="GET")
     try:
         resp = urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX)
@@ -485,7 +485,7 @@ def main() -> None:
 
         # Direct urllib call (rather than _post) because we need the JSON response body.
         headers = {"Content-Type": "application/json"}
-        if _token: headers["X-DND-Token"] = _token
+        if _token: headers["X-GM-Secret"] = _token
         try:
             req = urllib.request.Request(
                 DICE_REQ_URL, data=json.dumps(body).encode(),
@@ -511,7 +511,7 @@ def main() -> None:
                       file=sys.stderr)
             else:
                 status_url = f"{DICE_REQ_URL}/{request_id}"
-                poll_headers = {"X-DND-Token": _token} if _token else {}
+                poll_headers = {"X-GM-Secret": _token} if _token else {}
                 deadline = time.time() + max(1, args.wait_timeout)
                 last_pending: list = list(pending)
                 print(f"send.py: waiting for rolls from: {', '.join(pending)}", file=sys.stderr)
