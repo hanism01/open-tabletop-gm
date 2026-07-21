@@ -1,12 +1,23 @@
 """Tests for the campaign art-search helpers."""
 
+import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from scripts.art import (
     ArtValidationError,
+    art_path,
     build_search_query,
+    delete_record,
+    find_records,
+    list_records,
     normalize_candidate,
     parse_duckduckgo_lite_results,
+    save_record,
+    update_record,
     validate_public_https_url,
 )
 
@@ -99,6 +110,96 @@ class DuckDuckGoLiteParsingTests(unittest.TestCase):
                 }
             ],
         )
+
+
+class CampaignArtPersistenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_root = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_root.name)
+        (self.root / "campaigns" / "ashfall").mkdir(parents=True)
+        self.environment = patch.dict(os.environ, {"GM_CAMPAIGN_ROOT": str(self.root)})
+        self.environment.start()
+        self.record = {
+            "id": "blackwater-keep",
+            "kind": "place",
+            "title": "Blackwater Keep",
+            "aliases": ["The Keep", "blackwater"],
+            "tags": ["fortress", "ruin"],
+            "image_url": "https://images.example.com/blackwater.jpg",
+            "source_url": "https://artist.example.com/art/blackwater",
+            "creator": "A. Artist",
+        }
+
+    def tearDown(self):
+        self.environment.stop()
+        self.temporary_root.cleanup()
+
+    def test_saves_campaign_record_and_finds_it_by_query(self):
+        saved = save_record("ashfall", self.record)
+
+        stored_path = self.root / "campaigns" / "ashfall" / "art.json"
+        self.assertEqual(art_path("ashfall"), stored_path.resolve())
+        self.assertTrue(stored_path.exists())
+        self.assertEqual(
+            json.loads(stored_path.read_text()),
+            {"version": 1, "records": [saved]},
+        )
+        self.assertEqual(find_records("ashfall", "keep"), [saved])
+        self.assertEqual(saved["source_host"], "artist.example.com")
+        self.assertIn("saved_at", saved)
+
+    def test_rejects_invalid_kind_and_duplicate_id(self):
+        with self.assertRaises(ArtValidationError):
+            save_record("ashfall", {**self.record, "kind": "item"})
+
+        save_record("ashfall", self.record)
+        with self.assertRaises(ArtValidationError):
+            save_record("ashfall", self.record)
+
+    def test_normalizes_aliases_and_tags_before_applying_the_item_cap(self):
+        saved = save_record(
+            "ashfall",
+            {
+                **self.record,
+                "aliases": ["  The Keep  ", "the keep", ""] * 10,
+                "tags": ["ruin", "RUIN", ""],
+            },
+        )
+
+        self.assertEqual(saved["aliases"], ["The Keep"])
+        self.assertEqual(saved["tags"], ["ruin"])
+
+    def test_updates_and_deletes_a_record(self):
+        save_record("ashfall", self.record)
+
+        updated = update_record(
+            "ashfall", "blackwater-keep", {"title": "Blackwater Citadel", "status": "approved"}
+        )
+
+        self.assertEqual(updated["title"], "Blackwater Citadel")
+        self.assertEqual(updated["status"], "approved")
+        self.assertTrue(delete_record("ashfall", "blackwater-keep"))
+        self.assertEqual(list_records("ashfall"), [])
+        self.assertFalse(delete_record("ashfall", "blackwater-keep"))
+
+    def test_finds_aliases_and_all_searchable_fields_case_insensitively(self):
+        save_record("ashfall", self.record)
+
+        for query in ("BLACKWATER-KEEP", "blackwater keep", "THE KEEP", "PLACE", "FORTRESS"):
+            with self.subTest(query=query):
+                self.assertEqual(len(find_records("ashfall", query)), 1)
+
+    def test_writes_atomically_without_leaving_a_temporary_file(self):
+        save_record("ashfall", self.record)
+
+        self.assertFalse((self.root / "campaigns" / "ashfall" / "art.json.tmp").exists())
+
+    def test_missing_file_lists_no_records_and_corrupt_file_is_rejected(self):
+        self.assertEqual(list_records("ashfall"), [])
+        (self.root / "campaigns" / "ashfall" / "art.json").write_text("not json")
+
+        with self.assertRaises(ArtValidationError):
+            list_records("ashfall")
 
     def test_parses_canonical_result_links_and_image_fields_deterministically(self):
         html = """
