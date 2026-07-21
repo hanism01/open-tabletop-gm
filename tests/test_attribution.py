@@ -11,6 +11,8 @@ sys.path.insert(0, str(REPO / "display"))
 import tokens  # noqa: E402
 
 TUNNEL = {"CF-Connecting-IP": "203.0.113.9"}
+ORIGIN = "https://game.example.com"
+TUNNEL_ORIGIN = dict(TUNNEL, Origin=ORIGIN)
 
 
 def _import_app():
@@ -31,6 +33,7 @@ class AttributionTests(unittest.TestCase):
         cls.mod._INVITE_SECRET = cls.secret
         cls.mod._GM_SECRET = "test-gm-secret"
         cls.mod._REVOCATION = tokens.RevocationStore(d / ".revoked.json")
+        cls.mod._ALLOWED_ORIGINS = {ORIGIN, "http://localhost:5001"}
         cls.client = cls.mod.app.test_client()
 
     @classmethod
@@ -50,7 +53,7 @@ class AttributionTests(unittest.TestCase):
 
     def test_stage_ignores_body_character_for_players(self):
         self._login("Kara")
-        r = self.client.post("/player-input/stage", headers=TUNNEL,
+        r = self.client.post("/player-input/stage", headers=TUNNEL_ORIGIN,
                              data=json.dumps({"character": "Tom", "text": "I attack"}),
                              content_type="application/json")
         self.assertLess(r.status_code, 300, r.get_data(as_text=True))
@@ -66,7 +69,7 @@ class AttributionTests(unittest.TestCase):
         prev_threshold = self.mod._autorun_threshold
         self.mod._autorun_threshold = 99
         try:
-            r = self.client.post("/player-input/skip", headers=TUNNEL,
+            r = self.client.post("/player-input/skip", headers=TUNNEL_ORIGIN,
                                  data=json.dumps({"character": "Tom"}),
                                  content_type="application/json")
             self.assertLess(r.status_code, 300, r.get_data(as_text=True))
@@ -78,7 +81,7 @@ class AttributionTests(unittest.TestCase):
     def test_two_players_attributed_independently(self):
         for character, text in (("Kara", "kara acts"), ("Tom", "tom acts")):
             self._login(character)
-            self.client.post("/player-input/stage", headers=TUNNEL,
+            self.client.post("/player-input/stage", headers=TUNNEL_ORIGIN,
                              data=json.dumps({"character": "Everybody", "text": text}),
                              content_type="application/json")
             self.client.delete_cookie("gm_session")
@@ -98,7 +101,7 @@ class AttributionTests(unittest.TestCase):
         # local role still goes through the device gate — present a device id
         # (with _REQUIRE_APPROVAL False, any non-empty id is approved)
         r = self.client.post("/player-input/stage",
-                             headers={"X-DND-Device": "test-device"},
+                             headers={"X-DND-Device": "test-device", "Origin": ORIGIN},
                              data=json.dumps({"character": "Tom", "text": "gm staged"}),
                              content_type="application/json")
         self.assertLess(r.status_code, 300, r.get_data(as_text=True))

@@ -176,6 +176,12 @@ _RATE_WINDOW = 60    # seconds
 _RATE_MAX    = 20    # requests per window per IP
 
 
+def _rate_key() -> str:
+    """Rate-limit key. Behind the tunnel remote_addr is always 127.0.0.1 —
+    one shared bucket would let one player exhaust everyone's budget."""
+    return request.headers.get("CF-Connecting-IP") or request.remote_addr or "?"
+
+
 def _rate_ok(ip: str) -> bool:
     now = _time.time()
     with _rate_lock:
@@ -399,7 +405,11 @@ def _check_auto_trigger() -> None:
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-CORS(app)
+_PUBLIC_HOST = os.environ.get("GM_PUBLIC_HOST", "").strip()
+_ALLOWED_ORIGINS = {"http://localhost:5001", "http://127.0.0.1:5001"}
+if _PUBLIC_HOST:
+    _ALLOWED_ORIGINS.add(f"https://{_PUBLIC_HOST}")
+CORS(app, origins=sorted(_ALLOWED_ORIGINS))
 
 # ─── Fail-closed identity gate (spec §3) ──────────────────────────────────────
 # Sole access-control authority. Endpoint sets use Flask endpoint (view function)
@@ -483,6 +493,13 @@ def _gate():
         return jsonify({"error": "forbidden"}), 403
     if role == "player" and endpoint not in _PLAYER_ENDPOINTS:
         return jsonify({"error": "forbidden"}), 403
+    # CSRF: authorized non-GM writers must present an allow-listed Origin.
+    # SameSite=Lax alone does not stop top-level form POSTs (spec §5). GM CLI
+    # clients send no Origin, hence the role != "gm" carve-out.
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and role != "gm":
+        origin = request.headers.get("Origin") or request.headers.get("Referer", "")
+        if not any(origin == o or origin.startswith(o + "/") for o in _ALLOWED_ORIGINS):
+            return jsonify({"error": "bad origin"}), 403
     return None
 
 # Wire audio broadcast after _broadcast is defined (see bottom of file)
@@ -1799,7 +1816,7 @@ def narration_pref():
     directive to queued player input so the GM honors it that turn — no
     separate file read required on the GM side.
     """
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
     try:
@@ -1830,7 +1847,7 @@ def roll_pref():
     persistence — otherwise a crafted value could smuggle prompt text into the GM
     through the [[<Char> roll mode: …]] template that check_input.py emits.
     """
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
     char = _bound_character((data.get("character") or "").strip())
@@ -1934,7 +1951,7 @@ def tts_synthesize():
     """
     if _tts is None:
         return "TTS module unavailable", 503
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -2053,15 +2070,22 @@ def player_input():
     """
 
     import time
+    if not _rate_ok(_rate_key()):
+        return "Too Many Requests", 429
     data = request.get_json(force=True, silent=True) or {}
     character = _bound_character(str(data.get("character", "Party"))[:50])
-    text = str(data.get("text", ""))[:500]
+    text = _sanitize_input(str(data.get("text", "")))
     hold = bool(data.get("hold", False))
 
-    # Strip shell metacharacters — input is player dialogue/action, not commands
-    text = re.sub(r"[`\\$]", "", text).strip()
     if not text:
         return "empty", 400
+
+    with _stats_lock:
+        known = {p["name"] for p in _current_stats.get("players", [])}
+    # Same validation as stage_input, plus the route's legacy default "Party"
+    # so characterless local console posts keep working.
+    if not (_char_ok(character, known) or character == "Party"):
+        return "Forbidden", 403
 
     entry = {
         "character": character,
@@ -2365,7 +2389,7 @@ def stage_input():
 
     Body: {"character": "Mira", "text": "draws her rapier"}
     """
-    if not _rate_ok(request.remote_addr):
+    if not _rate_ok(_rate_key()):
         return "Too Many Requests", 429
 
     # A signed session cookie is strictly stronger than the device-id ritual;
@@ -2410,7 +2434,7 @@ def ready_input():
     Body: {"character": "Mira", "ready": true}
     Triggers auto-fire when all expected players are ready.
     """
-    if not _rate_ok(request.remote_addr):
+    if not _rate_ok(_rate_key()):
         return "Too Many Requests", 429
 
     # A signed session cookie is strictly stronger than the device-id ritual;
