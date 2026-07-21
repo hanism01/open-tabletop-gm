@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="dnd-token" content="{{ lan_token }}">
 <meta name="narrator-voice" content="{{ narrator_voice }}">
 <meta name="tts-available" content="{{ '1' if tts_available else '0' }}">
 
@@ -5452,9 +5451,10 @@ _dmHelpBtn.addEventListener('click', async () => {
   }
 });
 
-// Read token from meta tag injected by Flask (LAN mode)
-const _dndTokenMeta = document.querySelector('meta[name="dnd-token"]');
-const _dndToken = _dndTokenMeta ? _dndTokenMeta.getAttribute('content') : null;
+// LAN token auth removed — identity is cookie/secret-based now. Kept as a
+// null constant so the (now dead-but-harmless) X-DND-Token spreads below
+// stay no-ops instead of throwing ReferenceError.
+const _dndToken = null;
 
 // Persistent device ID — survives page refreshes, identifies this browser for DM approval
 // crypto.randomUUID() requires a secure context (HTTPS/localhost); fall back to

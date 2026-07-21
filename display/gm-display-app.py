@@ -124,7 +124,6 @@ def _apply_campaign_sfx_languages() -> None:
 HELP_LOCK     = os.path.join(_DISPLAY_DIR, ".help-lock")
 CAMP_FILE     = os.path.join(_DISPLAY_DIR, ".campaign")
 STATS_FILE    = os.path.join(_DISPLAY_DIR, "stats.json")
-TOKEN_FILE    = os.path.join(_DISPLAY_DIR, ".token")
 INPUT_FILE    = os.path.join(_DISPLAY_DIR, "player_input.json")
 TRIGGER_FILE  = os.path.join(_DISPLAY_DIR, ".input_trigger")
 QUEUE_FILE    = os.path.join(_DISPLAY_DIR, ".input_queue")
@@ -144,24 +143,6 @@ if _LAN_MODE:
     sys.argv.remove("--lan")   # prevent Flask from seeing an unknown flag
 if _TLS_MODE:
     sys.argv.remove("--tls")
-
-
-def _get_or_create_token() -> str:
-    """Load or generate the LAN token. Upgrades short legacy tokens to 64-char."""
-    try:
-        token = open(TOKEN_FILE).read().strip()
-        if len(token) >= 48:   # 48+ chars = already long enough
-            return token
-    except FileNotFoundError:
-        pass
-    token = secrets.token_hex(32)   # 64-char hex — brute force infeasible
-    with open(TOKEN_FILE, "w") as f:
-        f.write(token)
-    os.chmod(TOKEN_FILE, 0o600)
-    return token
-
-
-_lan_token: Optional[str] = _get_or_create_token() if _LAN_MODE else None
 
 
 # ─── Rate limiting ────────────────────────────────────────────────────────────
@@ -1297,10 +1278,8 @@ def join(token):
 
 @app.route("/")
 def index():
-    # Pass LAN token to template so the browser can authenticate /help-request
     return render_template(
         "index.html",
-        lan_token=_lan_token or "",
         narrator_voice=_read_narrator_voice(),
         tts_available=(_tts is not None),
         ui_manifest=_load_ui_manifest(),
@@ -2720,8 +2699,6 @@ if __name__ == "__main__":
     if _LAN_MODE:
         print(f"GM Display — LAN mode (0.0.0.0:5001) [{scheme.upper()}]")
         print(f"  Local:  {scheme}://localhost:5001")
-        print("  Token stored at:", TOKEN_FILE)
-        print("  POST endpoints require X-DND-Token header (send.py/push_stats.py handle this automatically)")
         print()
     else:
         print(f"GM Display — Flask server starting on {scheme}://localhost:5001")

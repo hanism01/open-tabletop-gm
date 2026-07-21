@@ -17,6 +17,10 @@ def _import_app():
     spec = importlib.util.spec_from_file_location(
         "gm_display_app", str(REPO / "display" / "gm-display-app.py"))
     mod = importlib.util.module_from_spec(spec)
+    # Register before exec so Flask's get_root_path() finds mod.__file__ via
+    # sys.modules instead of falling back to cwd (which breaks template
+    # resolution for render_template calls, e.g. GET /).
+    sys.modules["gm_display_app"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -155,6 +159,12 @@ class AuthGateTests(unittest.TestCase):
         finally:
             self.client.delete_cookie("gm_session")
             self.mod._REVOCATION.path.write_text('{"jti": [], "sid": [], "active": {}}')
+
+    def test_no_token_in_page_html(self):
+        r = self.client.get("/")
+        text = r.get_data(as_text=True)
+        self.assertNotIn("dnd-token", text)
+        self.assertNotIn("lan_token", text)
 
 
 if __name__ == "__main__":
