@@ -62,6 +62,54 @@ entries + textarea in the right rail across all panes.
   authenticated character).
 - Lives on the right side; no overlap.
 
+## 4. LLM-driven campaign art library + display image
+**Ask:** let the GM LLM find and show reference art in the web display, then save
+recurring images for places, NPCs, and generic creature archetypes. This is a GM tool
+workflow, not a human-operated search console and not a generative-image feature.
+
+**Proposed KISS workflow:**
+```
+art search --query "Blackwater Keep" [--source deviantart|web]
+  → GM selects a normalized result
+  → art show --url <result-url>                 # one-off scene art
+  → art save --candidate N --as blackwater-keep --kind place
+  → art show --id blackwater-keep                # recurring art
+```
+
+Search uses lightweight `lite.duckduckgo.com` result scraping and defaults to
+`--source deviantart`, adding a `site:deviantart.com` constraint to the query. The GM
+can explicitly choose `--source web` for wider results. DeviantArt is a source
+preference, not a separate scraper or UI. GenAI/image generation is explicitly out of
+scope.
+
+**Persistence:** save a campaign-owned `art.json` alongside the campaign's world,
+state, NPC, and session files. Each record has a stable ID, title/aliases, kind
+(`place`, `npc`, or `creature`), tags, selected image URL, thumbnail URL, canonical
+source URL, and available creator/attribution text. Store links and metadata, rather
+than automatically downloading or rehosting artwork. A future opt-in shared art library
+is deferred; no image is silently promoted between campaigns.
+
+**Display behavior:** `art show` pushes a single image event through SSE. The display
+renders a non-obstructive image panel/overlay with accessible alt text and a
+caption/source link; it survives browser reconnects and has a clear failure state for
+blocked or broken third-party images. `art hide` removes the active image.
+
+**Acceptance criteria:**
+- The GM LLM has documented `art search`, `save`, `find`, `list`, `update`, `show`,
+  `hide`, and `delete` commands; there is no operator search UI and no GenAI fallback.
+- Default DeviantArt-restricted search and explicit `--source web` search return capped,
+  normalized DuckDuckGo Lite candidate lists, including source URLs and available
+  attribution.
+- Saved `place`, `npc`, and `creature` records survive campaign reload and can be
+  recalled by ID, name, or alias.
+- All connected and reconnected display clients receive the same active image, caption,
+  and source link without covering player inputs or breaking responsive phone layouts.
+- The initial version does not automatically fetch, download, or rehost third-party
+  art. If fetching/caching is later added, it must reject private/local URLs and enforce
+  redirect, content-type, size, timeout, and rate limits.
+- Tests cover DeviantArt query construction, result normalization, campaign persistence
+  and recall, authenticated display pushes/SSE replay, and malicious URL rejection.
+
 ---
 
 ## Cross-cutting notes / flags (from the SME pass)
@@ -74,5 +122,8 @@ entries + textarea in the right rail across all panes.
 - **`#char-tabs` impersonation affordance:** the UI lets a bound phone pick any party member
   when staging. The server binds identity (Task 5), so this is not exploitable, but the UI
   is misleading — align the affordance with the enforced binding (ties to feature 3).
+- **Art-library scope:** art belongs to the current campaign in v1. A global/shared library
+  is deliberately deferred; that avoids cross-campaign ownership, duplicate, attribution,
+  and deletion rules until there is a concrete need.
 
 _Full SME notes captured in session scratchpad `ux-sme-review.md` at time of writing._
