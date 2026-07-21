@@ -5,7 +5,9 @@ Stdlib only (hmac, secrets, json, threading). Two token kinds:
   join    — single-use invite link payload, short TTL (default 72h)
   session — durable cookie credential, longer TTL (default 30 days)
 
-Wire format: base64url(json payload, no padding) + "." + hex HMAC-SHA256.
+Wire format: base64url(json payload, no padding) + "." + base64url HMAC-SHA256
+(no padding). The payload uses short single-char keys on the wire (see _SHORT /
+_mint); verify() maps them back to full names so its return contract is stable.
 Verification checks signature (constant-time), kind, and TTL on EVERY call.
 Revocation (consumed jtis, revoked sids) lives in RevocationStore — a locked,
 atomically-rewritten JSON file (same tmp+os.replace pattern as _persist_tail).
@@ -66,18 +68,28 @@ def _unb64(text: str) -> bytes:
 
 
 def _sign(body: str, secret: str) -> str:
-    return hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return _b64(hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest())
+
+
+# Wire compression: full payload key -> short single-char wire key. "k" (kind)
+# is unchanged; the nonce/id (jti|sid) is always serialized as "j" and mapped
+# back to jti/sid by verify() from the requested kind. verify() reverses this
+# table so its returned dict keeps the original full-name keys — no consumer
+# (the gate, the /j route, mint_session's join-payload read, tests) changes.
+_SHORT = {"player_id": "p", "character": "c", "campaign": "g",
+          "issued_at": "i", "ttl_s": "t"}
+_ID_FULL = {"join": "jti", "session": "sid"}
 
 
 def _mint(kind: str, id_key: str, player_id: str, character: str, campaign: str,
           *, secret: str, ttl_s: int, now=None) -> str:
-    payload = {
-        "k": kind, "player_id": player_id, "character": character.strip(),
-        "campaign": campaign, id_key: secrets.token_hex(16),
-        "issued_at": int(now if now is not None else time.time()),
-        "ttl_s": int(ttl_s),
+    wire = {
+        "k": kind, "p": player_id, "c": character.strip(), "g": campaign,
+        "j": secrets.token_hex(8),
+        "i": int(now if now is not None else time.time()),
+        "t": int(ttl_s),
     }
-    body = _b64(json.dumps(payload, separators=(",", ":")).encode())
+    body = _b64(json.dumps(wire, separators=(",", ":")).encode())
     return body + "." + _sign(body, secret)
 
 
@@ -103,20 +115,22 @@ def verify(token, *, secret, kind, now=None):
         return None
     expected = _sign(body, secret)
     try:
-        sig_bytes = bytes.fromhex(sig)
-        expected_bytes = bytes.fromhex(expected)
+        # Decode both base64url signatures to bytes for a constant-time compare.
+        # _unb64 raises ValueError (incl. UnicodeError) on non-ASCII/invalid sig.
+        sig_bytes = _unb64(sig)
+        expected_bytes = _unb64(expected)
     except ValueError:
         return None
     if not hmac.compare_digest(expected_bytes, sig_bytes):
         return None
     try:
-        payload = json.loads(_unb64(body))
+        wire = json.loads(_unb64(body))
     except (ValueError, UnicodeDecodeError):
         return None
-    if not isinstance(payload, dict) or payload.get("k") != kind:
+    if not isinstance(wire, dict) or wire.get("k") != kind:
         return None
-    issued = payload.get("issued_at")
-    ttl = payload.get("ttl_s")
+    issued = wire.get("i")
+    ttl = wire.get("t")
     if type(issued) is not int or type(ttl) is not int:
         return None
     if ttl <= 0:
@@ -124,7 +138,16 @@ def verify(token, *, secret, kind, now=None):
     current = now if now is not None else time.time()
     if current > issued + ttl:
         return None
-    return payload
+    # Map short wire keys back to the full-name return contract callers rely on.
+    return {
+        "k": wire.get("k"),
+        "player_id": wire.get("p"),
+        "character": wire.get("c"),
+        "campaign": wire.get("g"),
+        _ID_FULL[kind]: wire.get("j"),
+        "issued_at": issued,
+        "ttl_s": ttl,
+    }
 
 
 class RevocationStore:

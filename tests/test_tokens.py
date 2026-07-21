@@ -75,12 +75,34 @@ class TokenSignVerifyTests(unittest.TestCase):
 
     def test_bool_ttl_and_issued_rejected(self):
         # type(x) is int must reject bools (isinstance(True, int) is True in Python).
+        # Uses the short wire keys ("i"=issued_at, "t"=ttl_s) verify() now reads.
         body = tokens._b64(tokens.json.dumps(
-            {"k": "join", "player_id": "kara", "character": "Kara", "campaign": "camp1",
-             "jti": "x", "issued_at": True, "ttl_s": 100},
+            {"k": "join", "p": "kara", "c": "Kara", "g": "camp1",
+             "j": "x", "i": True, "t": 100},
             separators=(",", ":")).encode())
         sig = tokens._sign(body, SECRET)
         self.assertIsNone(tokens.verify(body + "." + sig, secret=SECRET, kind="join", now=0))
+
+    def test_verify_returns_full_name_keys_only(self):
+        # Return contract: full-name keys, no short wire keys leaking through.
+        t = tokens.mint_join("kara", "Kara", "camp1", secret=SECRET, now=1000)
+        p = tokens.verify(t, secret=SECRET, kind="join", now=1000)
+        self.assertEqual(set(p), {"k", "player_id", "character", "campaign",
+                                  "jti", "issued_at", "ttl_s"})
+        self.assertEqual(p["campaign"], "camp1")
+        self.assertEqual(p["issued_at"], 1000)
+        self.assertEqual(p["ttl_s"], tokens.JOIN_TTL_S)
+
+    def test_session_return_uses_sid_not_jti(self):
+        t = tokens.mint_session("kara", "Kara", "camp1", secret=SECRET, now=1000)
+        p = tokens.verify(t, secret=SECRET, kind="session", now=1000)
+        self.assertIn("sid", p)
+        self.assertNotIn("jti", p)
+
+    def test_minted_join_token_is_short(self):
+        # Lock the wire-shrink win: short keys + base64 sig + 64-bit nonce.
+        t = tokens.mint_join("kara", "Kara", "camp1", secret=SECRET, now=1000)
+        self.assertLess(len(t), 200)
 
 
 class RevocationStoreTests(unittest.TestCase):
