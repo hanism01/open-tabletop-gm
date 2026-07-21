@@ -72,6 +72,16 @@ class PublicUrlValidationTests(unittest.TestCase):
                 with self.assertRaises(ArtValidationError):
                     validate_public_https_url(value)
 
+    def test_rejects_malformed_dns_hostnames(self):
+        for value in (
+            "https://exa mple.com/art.jpg",
+            "https://-bad.example/art.jpg",
+            "https://example..com/art.jpg",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ArtValidationError):
+                    validate_public_https_url(value)
+
 
 class DuckDuckGoLiteParsingTests(unittest.TestCase):
     def test_keeps_result_open_through_nested_non_result_divs(self):

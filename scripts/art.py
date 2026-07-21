@@ -24,10 +24,23 @@ MAX_STATUS_LENGTH = 80
 MAX_ENTITY_ID_LENGTH = 120
 _NUMERIC_IP_HOST = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)(?:\.(?:0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$")
 _ART_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class ArtValidationError(ValueError):
     """Raised when art-search data is not safe or well formed."""
+
+
+def _validate_dns_hostname(hostname: str) -> None:
+    """Reject malformed non-IP hostnames after IDNA conversion."""
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError as error:
+        raise ArtValidationError("Hostname is malformed") from error
+    if len(ascii_hostname) > 253 or any(
+        not _DNS_LABEL.fullmatch(label) for label in ascii_hostname.split(".")
+    ):
+        raise ArtValidationError("Hostname is malformed")
 
 
 def art_path(campaign: str):
@@ -251,6 +264,8 @@ def validate_public_https_url(value: str) -> str:
         address = None
     if address is not None and not address.is_global:
         raise ArtValidationError("Non-public IP addresses are not allowed")
+    if address is None:
+        _validate_dns_hostname(clean_host)
 
     return urlunsplit((parts.scheme.lower(), parts.netloc, parts.path, parts.query, parts.fragment))
 
