@@ -436,7 +436,13 @@ def _resolve_identity():
     cookie = request.cookies.get("gm_session")
     if cookie:
         payload = tokens.verify(cookie, secret=_INVITE_SECRET, kind="session")
-        if payload and not _REVOCATION.is_sid_revoked(payload.get("sid", "")):
+        try:
+            revoked = bool(payload) and _REVOCATION.is_sid_revoked(payload.get("sid", ""))
+        except RuntimeError:
+            # corrupt/unreadable revocation store: cannot confirm good standing,
+            # so fail closed. Local console must not brick itself.
+            return {"role": "local"} if _is_local() else None
+        if payload and not revoked:
             return {"role": "player", "player_id": payload["player_id"],
                     "character": payload["character"]}
         # invalid/expired/revoked cookie: local console must not brick itself

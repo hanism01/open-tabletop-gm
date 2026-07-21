@@ -145,6 +145,17 @@ class AuthGateTests(unittest.TestCase):
         finally:
             self.client.delete_cookie("gm_session")
 
+    def test_corrupt_revocation_store_denies_403_not_500(self):
+        t, _ = self._cookie_for("Kara")
+        self.mod._REVOCATION.path.write_text("{ not valid json")
+        self.client.set_cookie("gm_session", t)
+        try:
+            r = self.client.get("/stream", headers=TUNNEL)
+            self.assertEqual(r.status_code, 403)
+        finally:
+            self.client.delete_cookie("gm_session")
+            self.mod._REVOCATION.path.write_text('{"jti": [], "sid": [], "active": {}}')
+
 
 if __name__ == "__main__":
     unittest.main()
