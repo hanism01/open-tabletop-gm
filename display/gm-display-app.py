@@ -455,6 +455,14 @@ def _resolve_identity():
     return None
 
 
+def _bound_character(fallback: str = "") -> str:
+    """Authenticated players act only as themselves; local/gm may name anyone."""
+    ident = getattr(g, "identity", None) or {}
+    if ident.get("role") == "player":
+        return ident["character"]
+    return fallback
+
+
 @app.before_request
 def _gate():
     """Sole access authority (spec §3): fail-closed over reads and writes."""
@@ -1801,7 +1809,7 @@ def roll_pref():
     if not _rate_ok(request.remote_addr or "?"):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
-    char = (data.get("character") or "").strip()
+    char = _bound_character((data.get("character") or "").strip())
     mode = (data.get("mode") or "").strip().lower()
     if not char or mode not in ("auto", "players"):
         return {"ok": False}, 400
@@ -2022,7 +2030,7 @@ def player_input():
 
     import time
     data = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", "Party"))[:50]
+    character = _bound_character(str(data.get("character", "Party"))[:50])
     text = str(data.get("text", ""))[:500]
     hold = bool(data.get("hold", False))
 
@@ -2061,7 +2069,7 @@ def player_dice():
     """
 
     data = request.get_json(force=True, silent=True) or {}
-    character = re.sub(r"[`\\$]", "", str(data.get("character", "Player"))[:50]).strip() or "Player"
+    character = _bound_character(re.sub(r"[`\\$]", "", str(data.get("character", "Player"))[:50]).strip() or "Player")
     spec      = str(data.get("spec", "1d20")).strip().lower()
     modifier  = int(data.get("modifier", 0) or 0)
     adv       = str(data.get("advantage", "normal")).strip().lower()
@@ -2348,7 +2356,7 @@ def stage_input():
             return jsonify({"status": "pending"}), 202
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     text      = _sanitize_input(str(data.get("text", "")))
 
     if not character or not text:
@@ -2393,7 +2401,7 @@ def ready_input():
             return jsonify({"status": "pending"}), 202
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     ready     = bool(data.get("ready", True))
 
     with _staged_lock:
@@ -2424,7 +2432,7 @@ def unstage_input():
             return "Forbidden", 403
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
 
     with _staged_lock:
         _staged.pop(character, None)
@@ -2533,7 +2541,7 @@ def stream():
         _clients.append(q)
         # Register this client's bound character (phones pass ?character=/?char=);
         # the main display passes neither. Drives dice-request phone-vs-screen routing.
-        _ch = (request.args.get("character") or request.args.get("char") or "").strip().lower()[:48]
+        _ch = _bound_character((request.args.get("character") or request.args.get("char") or "").strip()).lower()[:48]
         if _ch:
             _client_chars[q] = _ch
 
