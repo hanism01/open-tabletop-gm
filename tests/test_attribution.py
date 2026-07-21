@@ -57,6 +57,24 @@ class AttributionTests(unittest.TestCase):
         self.assertIn("Kara", self.mod._staged)
         self.assertNotIn("Tom", self.mod._staged)
 
+    def test_skip_ignores_body_character_for_players(self):
+        self._login("Kara")
+        # skip_input stages with ready=True and calls _check_auto_trigger, which
+        # would otherwise immediately clear _staged once len(_staged) >= threshold
+        # (default _expected_count is 1). Raise the threshold so the staged entry
+        # survives long enough to assert attribution.
+        prev_threshold = self.mod._autorun_threshold
+        self.mod._autorun_threshold = 99
+        try:
+            r = self.client.post("/player-input/skip", headers=TUNNEL,
+                                 data=json.dumps({"character": "Tom"}),
+                                 content_type="application/json")
+            self.assertLess(r.status_code, 300, r.get_data(as_text=True))
+            self.assertIn("Kara", self.mod._staged)
+            self.assertNotIn("Tom", self.mod._staged)
+        finally:
+            self.mod._autorun_threshold = prev_threshold
+
     def test_two_players_attributed_independently(self):
         for character, text in (("Kara", "kara acts"), ("Tom", "tom acts")):
             self._login(character)

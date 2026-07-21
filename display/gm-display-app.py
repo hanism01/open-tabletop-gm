@@ -2457,7 +2457,7 @@ def skip_input():
             return "Forbidden", 403
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     if not character:
         return "Bad Request", 400
 
