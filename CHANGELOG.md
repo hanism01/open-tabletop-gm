@@ -12,6 +12,16 @@ This project is the LLM-agnostic, system-flexible fork of [claude-dnd-skill](htt
 
 ## [Unreleased]
 
+### Remote play over a Cloudflare Tunnel (per-player join links)
+
+- **Play over the internet with no open ports.** A new remote mode puts a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) in front of the display companion: `cloudflared` opens an outbound-only path to Cloudflare's edge, so nobody port-forwards and the display still binds to `127.0.0.1` only. Setup, session flow, and the threat model are documented in [docs/REMOTE-PLAY.md](docs/REMOTE-PLAY.md); LAN mode (`--lan`) stays as the legacy same-room path. `display/tunnel/start-tunnel.sh` and `config.yml.example` are the reusable scaffolding.
+- **Per-player signed join links.** `scripts/gm_invite.py` mints one single-use `https://<host>/j/<token>` link per character. Opening it sets a `gm_session` cookie that binds that browser to that character for the session; players never see or need the GM secret. Links are single-use (consumed on first open) and expire after 72h (`--ttl-hours`). `mint`, `list`, and `--revoke` cover reissue and revocation — reissuing auto-revokes the character's prior session on first use of the new link.
+- **HMAC-signed tokens, compact wire format.** New `display/tokens.py` signs join links and session cookies with `display/.invite_secret` (created `0600` on first run). The join/session token format uses short keys, a base64url 256-bit signature, and a 64-bit nonce — ~40% smaller than the initial cut. Rotating the secret invalidates all outstanding links and sessions.
+- **GM CLI auth moved to `X-GM-Secret` / `display/.gm_secret`.** The GM-side scripts (`send.py`, `check_input.py`, `push_stats.py`, `autorun_wait.py`, `wrapper.py`, `scripts/dice_player.py`) now authenticate with a dedicated GM secret instead of the old display token, kept separate from the player-facing invite secret.
+- **Origin gate keyed on `GM_PUBLIC_HOST`.** CORS/CSRF allow-list derives from `GM_PUBLIC_HOST`; without it the server only trusts `http://localhost:5001` and rejects tunnelled writes with `403 {"error": "bad origin"}`. Loopback requests with no proxy headers are treated as the local GM console and bypass the gate.
+- **Per-player attribution.** Player input arriving over the tunnel is tagged with the character's name (`[Kara]`, `[Tom]`) so the GM sees who acted.
+- **Fixed SSE buffering through the tunnel.** `/stream` was setting a manual `Transfer-Encoding: chunked` and `Connection` header (a duplicate of WSGI's), which made `cloudflared` return 502; removing both — while keeping `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no` — lets events stream live instead of arriving in bursts.
+
 ### Cleared remaining Claude-coupling leftovers
 
 - **`wrapper.py` wraps any agent**, not just Claude — set `GM_AGENT_CMD` (default `claude`) to wrap `opencode`, `gemini`, etc. The PTY wrapper is a legacy/optional path anyway (the canonical setup runs the agent directly + `send.py`).
