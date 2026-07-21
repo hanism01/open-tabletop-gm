@@ -34,7 +34,7 @@ import urllib.error
 import urllib.request
 
 DISPLAY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "display")
-TOKEN_FILE  = os.path.join(DISPLAY_DIR, ".token")
+TOKEN_FILE  = os.path.join(DISPLAY_DIR, ".gm_secret")
 SCHEME_FILE = os.path.join(DISPLAY_DIR, ".scheme")
 TIMEOUT     = 8.0
 
@@ -82,21 +82,21 @@ def _parse_spec(raw: str) -> "tuple[str, int]":
 def _post(url: str, body: dict, token: str) -> dict:
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["X-DND-Token"] = token
+        headers["X-GM-Secret"] = token
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX) as resp:
         return json.loads(resp.read().decode("utf-8") or "{}")
 
 
 def _get(url: str, token: str) -> dict:
-    headers = {"X-DND-Token": token} if token else {}
+    headers = {"X-GM-Secret": token} if token else {}
     req = urllib.request.Request(url, headers=headers, method="GET")
     with urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX) as resp:
         return json.loads(resp.read().decode("utf-8") or "{}")
 
 
 def _delete(url: str, token: str) -> None:
-    headers = {"X-DND-Token": token} if token else {}
+    headers = {"X-GM-Secret": token} if token else {}
     req = urllib.request.Request(url, headers=headers, method="DELETE")
     try:
         urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX)

@@ -1737,7 +1737,7 @@ def effects_expire():
     and broadcasts effect_expired to all connected clients.
     """
     data  = request.get_json(silent=True) or {}
-    owner = data.get("owner", "").strip()
+    owner = _bound_character(data.get("owner", "").strip())
     name  = data.get("name", "").strip()
     if not owner or not name:
         return "", 400
@@ -2305,6 +2305,7 @@ def get_character_sheet(character):
     dependencies (no `markdown` lib required).
     """
 
+    character = _bound_character(character)
     safe = re.sub(r"[^A-Za-z0-9 _-]", "", character).strip()[:50]
     if not safe:
         return "Bad character name", 400

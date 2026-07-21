@@ -31,6 +31,18 @@ class GmHeaderTests(unittest.TestCase):
         self.assertNotIn("X-DND-Token", src)
         self.assertIn(".gm_secret", src)
 
+    def test_wrapper_uses_gm_secret_header(self):
+        src = (REPO / "display" / "wrapper.py").read_text()
+        self.assertIn("X-GM-Secret", src)
+        self.assertNotIn("X-DND-Token", src)
+        self.assertIn(".gm_secret", src)
+
+    def test_dice_player_uses_gm_secret_header(self):
+        src = (REPO / "scripts" / "dice_player.py").read_text()
+        self.assertIn("X-GM-Secret", src)
+        self.assertNotIn("X-DND-Token", src)
+        self.assertIn(".gm_secret", src)
+
 
 if __name__ == "__main__":
     unittest.main()
