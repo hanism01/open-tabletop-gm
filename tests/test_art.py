@@ -20,6 +20,7 @@ from scripts.art import (
     update_record,
     validate_public_https_url,
 )
+from scripts import art
 
 
 class BuildSearchQueryTests(unittest.TestCase):
@@ -31,6 +32,109 @@ class BuildSearchQueryTests(unittest.TestCase):
 
     def test_web_source_leaves_query_unrestricted(self):
         self.assertEqual(build_search_query("blackwater keep", source="web"), "blackwater keep")
+
+
+class ArtCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_root = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_root.name)
+        (self.root / "campaigns" / "ashfall").mkdir(parents=True)
+        self.environment = patch.dict(os.environ, {"GM_CAMPAIGN_ROOT": str(self.root)})
+        self.environment.start()
+
+    def tearDown(self):
+        self.environment.stop()
+        self.temporary_root.cleanup()
+
+    def test_search_defaults_to_deviantart_domain_query(self):
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        with patch("scripts.art.fetch_search_results", return_value=[]) as fetch:
+            with redirect_stdout(StringIO()):
+                self.assertEqual(art.main(["search", "--campaign", "ashfall", "--query", "blackwater keep"]), 0)
+
+        self.assertEqual(fetch.call_args.args, ("blackwater keep site:deviantart.com",))
+
+    def test_save_without_a_search_cache_returns_malformed_status(self):
+        from io import StringIO
+        from contextlib import redirect_stderr, redirect_stdout
+
+        stderr = StringIO()
+        with redirect_stderr(stderr), redirect_stdout(StringIO()):
+            status = art.main(
+                ["save", "--campaign", "ashfall", "--candidate", "0", "--as", "keep", "--kind", "place"]
+            )
+
+        self.assertEqual(status, 2)
+        self.assertIn("search cache", stderr.getvalue().lower())
+
+    def test_expired_cache_cannot_be_saved_and_successful_save_consumes_it(self):
+        from io import StringIO
+        from contextlib import redirect_stderr, redirect_stdout
+
+        cache = self.root / "campaigns" / "ashfall" / ".art_search_cache.json"
+        candidate = {
+            "title": "Blackwater Keep",
+            "image_url": "https://images.example.com/keep.jpg",
+            "source_url": "https://artist.example.com/keep",
+        }
+        cache.write_text(json.dumps({"created_at": "2000-01-01T00:00:00Z", "candidates": [candidate]}))
+        with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
+            self.assertEqual(
+                art.main(["save", "--campaign", "ashfall", "--candidate", "0", "--as", "keep", "--kind", "place"]),
+                2,
+            )
+        self.assertTrue(cache.exists())
+
+        cache.write_text(json.dumps({"created_at": "2999-01-01T00:00:00Z", "candidates": [candidate]}))
+        with redirect_stdout(StringIO()):
+            self.assertEqual(
+                art.main(["save", "--campaign", "ashfall", "--candidate", "0", "--as", "keep", "--kind", "place", "--tags", "ruin,fortress"]),
+                0,
+            )
+        self.assertFalse(cache.exists())
+        self.assertEqual(list_records("ashfall")[0]["tags"], ["ruin", "fortress"])
+
+    def test_crud_commands_return_compact_json(self):
+        save_record(
+            "ashfall",
+            {
+                "id": "keep", "kind": "place", "title": "Blackwater Keep",
+                "source_url": "https://artist.example.com/keep",
+            },
+        )
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        def run(argv):
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(art.main(argv), 0)
+            return json.loads(output.getvalue())
+
+        self.assertEqual(run(["find", "--campaign", "ashfall", "--query", "blackwater"])[0]["id"], "keep")
+        self.assertEqual(run(["list", "--campaign", "ashfall", "--kind", "place"])[0]["id"], "keep")
+        self.assertEqual(
+            run(["update", "--campaign", "ashfall", "--id", "keep", "--title", "Blackwater Citadel"])["title"],
+            "Blackwater Citadel",
+        )
+        self.assertEqual(run(["show", "--campaign", "ashfall", "--id", "keep"])["id"], "keep")
+        self.assertEqual(run(["delete", "--campaign", "ashfall", "--id", "keep"]), {"deleted": "keep"})
+
+    def test_one_off_show_and_hide_use_display_hook(self):
+        with patch("scripts.art.post_display_art") as post:
+            self.assertEqual(
+                art.main([
+                    "show", "--url", "https://images.example.com/keep.jpg",
+                    "--source-url", "https://artist.example.com/keep", "--title", "Blackwater Keep",
+                ]),
+                0,
+            )
+            self.assertEqual(art.main(["hide"]), 0)
+
+        self.assertEqual(post.call_args_list[0].args[0]["title"], "Blackwater Keep")
+        self.assertEqual(post.call_args_list[1].args[0], {"action": "hide"})
 
 
 class CandidateNormalizationTests(unittest.TestCase):

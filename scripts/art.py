@@ -1,12 +1,16 @@
-"""Small, network-free helpers for campaign-owned art searches."""
+"""Campaign-owned art search, persistence, and LLM-friendly CLI commands."""
 
+import argparse
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 import ipaddress
 import json
 import os
 import re
+import sys
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote_plus, unquote, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 
 from scripts import paths
 
@@ -22,6 +26,7 @@ MAX_CREATOR_LENGTH = 200
 MAX_NOTES_LENGTH = 2_000
 MAX_STATUS_LENGTH = 80
 MAX_ENTITY_ID_LENGTH = 120
+CACHE_TTL = timedelta(minutes=10)
 _NUMERIC_IP_HOST = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)(?:\.(?:0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$")
 _ART_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -46,6 +51,11 @@ def _validate_dns_hostname(hostname: str) -> None:
 def art_path(campaign: str):
     """Return the campaign-owned art record file path."""
     return paths.find_campaign(campaign) / "art.json"
+
+
+def search_cache_path(campaign: str):
+    """Return the short-lived search candidate cache path for a campaign."""
+    return paths.find_campaign(campaign) / ".art_search_cache.json"
 
 
 def _normalize_text(value: Any, field: str, limit: int, *, required: bool = False) -> str:
@@ -386,3 +396,159 @@ def parse_duckduckgo_lite_results(markup: str) -> list[dict[str, str]]:
         except ArtValidationError:
             continue
     return candidates
+
+
+def fetch_search_results(query: str) -> list[dict[str, str]]:
+    """Fetch and parse DuckDuckGo Lite results without visiting result pages."""
+    request = Request(
+        "https://lite.duckduckgo.com/lite/?q=" + quote_plus(query),
+        headers={"User-Agent": "open-tabletop-gm-art/1.0"},
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            markup = response.read().decode("utf-8", errors="replace")
+    except OSError as error:
+        raise ArtValidationError("Art search request failed") from error
+    return parse_duckduckgo_lite_results(markup)
+
+
+def _write_search_cache(campaign: str, candidates: list[dict[str, str]]) -> None:
+    path = search_cache_path(campaign)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"created_at": _saved_timestamp(), "candidates": candidates}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _load_search_cache(campaign: str) -> list[dict[str, str]]:
+    path = search_cache_path(campaign)
+    if not path.exists():
+        raise ArtValidationError("No valid art search cache is available; run search first")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        created_at = datetime.fromisoformat(payload["created_at"].replace("Z", "+00:00"))
+        candidates = payload["candidates"]
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ArtValidationError("Art search cache is invalid; run search again") from error
+    if created_at.tzinfo is None or datetime.now(timezone.utc) - created_at > CACHE_TTL:
+        raise ArtValidationError("Art search cache has expired; run search again")
+    if not isinstance(candidates, list):
+        raise ArtValidationError("Art search cache is invalid; run search again")
+    try:
+        return [normalize_candidate(candidate) for candidate in candidates]
+    except ArtValidationError as error:
+        raise ArtValidationError("Art search cache is invalid; run search again") from error
+
+
+def post_display_art(payload: dict[str, str]) -> None:
+    """Post an art display payload. The display endpoint is intentionally pending."""
+    del payload
+
+
+def _csv_values(value: str | None) -> list[str]:
+    return [] if value is None else [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Search and manage campaign art.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    search = commands.add_parser("search")
+    search.add_argument("--campaign", required=True)
+    search.add_argument("--query", required=True)
+    search.add_argument("--source", choices=sorted(SEARCH_SOURCES), default="deviantart")
+    save = commands.add_parser("save")
+    save.add_argument("--campaign", required=True)
+    save.add_argument("--candidate", required=True, type=int)
+    save.add_argument("--as", dest="record_id", required=True)
+    save.add_argument("--kind", choices=sorted(ART_KINDS), required=True)
+    save.add_argument("--tags")
+    find = commands.add_parser("find")
+    find.add_argument("--campaign", required=True)
+    find.add_argument("--query", required=True)
+    listing = commands.add_parser("list")
+    listing.add_argument("--campaign", required=True)
+    listing.add_argument("--kind", choices=sorted(ART_KINDS))
+    update = commands.add_parser("update")
+    update.add_argument("--campaign", required=True)
+    update.add_argument("--id", required=True)
+    for option in ("title", "creator", "notes", "status", "image_url", "thumbnail_url", "source_url"):
+        update.add_argument("--" + option.replace("_", "-"), dest=option)
+    update.add_argument("--tags")
+    update.add_argument("--aliases")
+    delete = commands.add_parser("delete")
+    delete.add_argument("--campaign", required=True)
+    delete.add_argument("--id", required=True)
+    show = commands.add_parser("show")
+    show.add_argument("--campaign")
+    show.add_argument("--id")
+    show.add_argument("--url")
+    show.add_argument("--source-url")
+    show.add_argument("--title")
+    commands.add_parser("hide")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the art CLI, returning 0 on success and 2 for malformed input."""
+    try:
+        args = _parser().parse_args(argv)
+    except SystemExit as error:
+        return int(error.code)
+    try:
+        if args.command == "search":
+            candidates = fetch_search_results(build_search_query(args.query, args.source))
+            _write_search_cache(args.campaign, candidates)
+            print(json.dumps(candidates, separators=(",", ":")))
+        elif args.command == "save":
+            candidates = _load_search_cache(args.campaign)
+            if args.candidate < 0 or args.candidate >= len(candidates):
+                raise ArtValidationError("Candidate number is not in the search cache")
+            candidate = candidates[args.candidate]
+            saved = save_record(args.campaign, {
+                **candidate, "id": args.record_id, "kind": args.kind, "tags": _csv_values(args.tags),
+            })
+            search_cache_path(args.campaign).unlink(missing_ok=True)
+            print(json.dumps(saved, separators=(",", ":")))
+        elif args.command == "find":
+            print(json.dumps(find_records(args.campaign, args.query), separators=(",", ":")))
+        elif args.command == "list":
+            records = list_records(args.campaign)
+            if args.kind:
+                records = [record for record in records if record["kind"] == args.kind]
+            print(json.dumps(records, separators=(",", ":")))
+        elif args.command == "update":
+            changes = {key: value for key, value in vars(args).items() if key in {
+                "title", "creator", "notes", "status", "image_url", "thumbnail_url", "source_url"
+            } and value is not None}
+            if args.tags is not None:
+                changes["tags"] = _csv_values(args.tags)
+            if args.aliases is not None:
+                changes["aliases"] = _csv_values(args.aliases)
+            if not changes:
+                raise ArtValidationError("Update requires at least one changed field")
+            print(json.dumps(update_record(args.campaign, args.id, changes), separators=(",", ":")))
+        elif args.command == "delete":
+            if not delete_record(args.campaign, args.id):
+                raise ArtValidationError("Art record was not found")
+            print(json.dumps({"deleted": args.id}, separators=(",", ":")))
+        elif args.command == "show":
+            if args.campaign and args.id and not any((args.url, args.source_url, args.title)):
+                records = [record for record in list_records(args.campaign) if record["id"] == args.id]
+                if not records:
+                    raise ArtValidationError("Art record was not found")
+                print(json.dumps(records[0], separators=(",", ":")))
+            elif not args.campaign and args.url and args.source_url and args.title:
+                post_display_art({"url": validate_public_https_url(args.url), "source_url": validate_public_https_url(args.source_url), "title": _normalize_text(args.title, "title", MAX_TITLE_LENGTH, required=True)})
+            else:
+                raise ArtValidationError("Show requires either --campaign and --id, or --url, --source-url, and --title")
+        else:
+            post_display_art({"action": "hide"})
+    except (ArtValidationError, OSError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
