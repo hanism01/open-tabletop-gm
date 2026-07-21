@@ -72,7 +72,7 @@ def _sign(body: str, secret: str) -> str:
 def _mint(kind: str, id_key: str, player_id: str, character: str, campaign: str,
           *, secret: str, ttl_s: int, now=None) -> str:
     payload = {
-        "k": kind, "player_id": player_id, "character": character,
+        "k": kind, "player_id": player_id, "character": character.strip(),
         "campaign": campaign, id_key: secrets.token_hex(16),
         "issued_at": int(now if now is not None else time.time()),
         "ttl_s": int(ttl_s),

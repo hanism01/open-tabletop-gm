@@ -27,6 +27,13 @@ class TokenSignVerifyTests(unittest.TestCase):
         p = tokens.verify(t, secret=SECRET, kind="session", now=1000)
         self.assertIn("sid", p)
 
+    def test_mint_strips_character_whitespace(self):
+        # character is the SSE address; surrounding whitespace must not survive minting
+        # (Task 6 review: asymmetric strip caused cross-player leak / silent drop).
+        t = tokens.mint_session("kara", "  Kara  ", "c", secret=SECRET, now=1000)
+        p = tokens.verify(t, secret=SECRET, kind="session", now=1000)
+        self.assertEqual(p["character"], "Kara")
+
     def test_tampered_token_rejected(self):
         t = tokens.mint_join("kara", "Kara", "camp1", secret=SECRET, now=1000)
         body, sig = t.rsplit(".", 1)

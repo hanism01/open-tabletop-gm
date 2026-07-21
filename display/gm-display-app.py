@@ -2565,7 +2565,7 @@ def stream():
         _clients.append(q)
         # Register this client's bound character (phones pass ?character=/?char=);
         # the main display passes neither. Drives dice-request phone-vs-screen routing.
-        _ch = _bound_character((request.args.get("character") or request.args.get("char") or "").strip()).lower()[:48]
+        _ch = _bound_character((request.args.get("character") or request.args.get("char") or "").strip()).strip().lower()[:48]
         if _ch:
             _client_chars[q] = _ch
 
