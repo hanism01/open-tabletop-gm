@@ -2663,15 +2663,18 @@ def stream():
         generate(),
         mimetype="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            # no-transform stops proxies (Cloudflare included) from buffering
+            # or re-encoding the event stream; X-Accel-Buffering disables
+            # nginx-style buffering. Do NOT set Transfer-Encoding or Connection
+            # here: the WSGI server manages response framing, and a manual
+            # duplicate Transfer-Encoding makes cloudflared reject the whole
+            # response as a smuggling hazard (502 Bad Gateway) — which killed
+            # SSE through the tunnel. The earlier manual headers were a
+            # LAN/eero-mesh anti-buffering hack; the tunnel is the primary path.
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
-            "Transfer-Encoding": "chunked",
         },
     )
-    # Force a single authoritative Connection header — Werkzeug otherwise
-    # emits both keep-alive (ours) and close (its default), which confuses
-    # transparent proxies (e.g. eero mesh routing) into buffering the stream.
-    resp.headers["Connection"] = "keep-alive"
     return resp
 
 
