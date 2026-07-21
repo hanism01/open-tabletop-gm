@@ -51,7 +51,9 @@ class PublicUrlValidationTests(unittest.TestCase):
             "http://example.com/art.jpg",
             "https://127.0.0.1/art.jpg",
             "https://localhost/art.jpg",
+            "https://foo.localhost/art.jpg",
             "https://10.0.0.1/art.jpg",
+            "https://127.0.0.1.nip.io/art.jpg",
             "https://2130706433/art.jpg",
             "https://0177.0.0.1/art.jpg",
         ):
@@ -61,6 +63,21 @@ class PublicUrlValidationTests(unittest.TestCase):
 
 
 class DuckDuckGoLiteParsingTests(unittest.TestCase):
+    def test_keeps_result_open_through_nested_non_result_divs(self):
+        html = """
+        <div class="result">
+          <div class="result__body">
+            <a class="result-link" href="https://example.com/page">A result</a>
+          </div>
+          <img src="https://example.com/thumb.jpg">
+        </div>
+        """
+
+        result = parse_duckduckgo_lite_results(html)
+
+        self.assertEqual(result[0]["image_url"], "https://example.com/thumb.jpg")
+        self.assertEqual(result[0]["thumbnail_url"], "https://example.com/thumb.jpg")
+
     def test_parses_lite_table_result_markup(self):
         html = """
         <table><tr><td>

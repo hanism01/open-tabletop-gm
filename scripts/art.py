@@ -49,8 +49,12 @@ def validate_public_https_url(value: str) -> str:
         raise ArtValidationError("URL credentials are not allowed")
 
     clean_host = hostname.rstrip(".").lower()
-    if clean_host == "localhost":
+    # This is syntax-only validation. A future fetcher must resolve and
+    # revalidate the connection destination to guard against DNS rebinding.
+    if clean_host == "localhost" or clean_host.endswith(".localhost"):
         raise ArtValidationError("Local URLs are not allowed")
+    if clean_host == "nip.io" or clean_host.endswith(".nip.io"):
+        raise ArtValidationError("Wildcard IP aliases are not allowed")
     if _NUMERIC_IP_HOST.fullmatch(clean_host):
         raise ArtValidationError("Numeric IP address forms are not allowed")
     try:
@@ -102,7 +106,8 @@ class _DuckDuckGoLiteParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.results: list[dict[str, str]] = []
-        self._result_depth = 0
+        self._div_depth = 0
+        self._result_div_depth: int | None = None
         self._active: dict[str, str] | None = None
         self._in_title_anchor = False
 
@@ -114,9 +119,10 @@ class _DuckDuckGoLiteParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         classes = set((attributes.get("class") or "").split())
-        if tag == "div" and "result" in classes:
-            self._result_depth += 1
-            if self._result_depth == 1:
+        if tag == "div":
+            self._div_depth += 1
+            if "result" in classes and self._result_div_depth is None:
+                self._result_div_depth = self._div_depth
                 self._active = {"title": "", "source_url": "", "thumbnail_url": ""}
             return
         if self._active is None:
@@ -124,7 +130,7 @@ class _DuckDuckGoLiteParser(HTMLParser):
                 return
             self._active = {"title": "", "source_url": "", "thumbnail_url": ""}
         if tag == "a" and ("result-link" in classes or "result__a" in classes):
-            if not self._result_depth and self._active["source_url"]:
+            if self._result_div_depth is None and self._active["source_url"]:
                 self._append_active()
                 self._active = {"title": "", "source_url": "", "thumbnail_url": ""}
             self._active["source_url"] = _canonical_result_url(attributes.get("href") or "")
@@ -135,10 +141,11 @@ class _DuckDuckGoLiteParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag == "a":
             self._in_title_anchor = False
-        if tag == "div" and self._result_depth:
-            self._result_depth -= 1
-            if self._result_depth == 0 and self._active is not None:
+        if tag == "div":
+            if self._result_div_depth == self._div_depth and self._active is not None:
                 self._append_active()
+                self._result_div_depth = None
+            self._div_depth = max(0, self._div_depth - 1)
 
     def handle_data(self, data: str) -> None:
         if self._active is not None and self._in_title_anchor:
