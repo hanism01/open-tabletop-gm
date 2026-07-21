@@ -1,0 +1,13 @@
+# cloudflared named-tunnel config for open-tabletop-gm remote play.
+# Copy to ~/.cloudflared/config.yml after `cloudflared tunnel create gm-display`.
+tunnel: gm-display
+credentials-file: ~/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: game.example.com     # <- your hostname
+    service: http://localhost:5001
+    originRequest:
+      noTLSVerify: true
+      # SSE: disable buffering so events stream in real time
+      disableChunkedEncoding: false
+  - service: http_status:404

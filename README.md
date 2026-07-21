@@ -381,6 +381,8 @@ A **◈ GM Help** button sits in the bottom-right corner of the display. Click i
 
 See [display/README.md](display/README.md) for full documentation.
 
+For playing over the internet with per-player join links instead of same-room LAN, see [docs/REMOTE-PLAY.md](docs/REMOTE-PLAY.md).
+
 ---
 
 ## File layout
