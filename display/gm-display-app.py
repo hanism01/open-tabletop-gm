@@ -1198,6 +1198,30 @@ def _broadcast(payload: dict) -> None:
             _client_chars.pop(q, None)
 
 
+def _envelope(event_type, identity, payload):
+    """Canonical message envelope (spec §3b). Schema frozen for Spec 2."""
+    return {"v": 1, "type": event_type, "identity": identity, "payload": payload}
+
+
+def _broadcast_to(character, payload):
+    """Push payload only to SSE clients registered for this character.
+
+    Normalizes the character exactly like /stream registration (strip,
+    lowercase, cap 48) and delivers to every matching queue — a player may
+    have several connected devices.
+    """
+    target = (character or "").strip().lower()[:48]
+    if not target:
+        return
+    with _clients_lock:
+        matches = [q for q, c in _client_chars.items() if c == target]
+    for q in matches:
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            pass
+
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 _SYSTEMS_DIR = pathlib.Path(__file__).resolve().parent.parent / "systems"
