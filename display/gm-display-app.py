@@ -2403,10 +2403,15 @@ def get_character_sheet(character):
     dependencies (no `markdown` lib required).
     """
 
-    character = _bound_character(character)
-    safe = re.sub(r"[^A-Za-z0-9 _-]", "", character).strip()[:50]
-    if not safe:
+    # Sheets are shared reference material for the active party.  Unlike action
+    # endpoints, a player identity does not rewrite this requested character.
+    if not _CHAR_NAME_RE.match(character):
         return "Bad character name", 400
+    with _stats_lock:
+        known = {p["name"] for p in _current_stats.get("players", [])}
+    if not _char_ok(character, known):
+        return "Forbidden", 403
+    safe = character
 
     try:
         camp = open(CAMP_FILE).read().strip()

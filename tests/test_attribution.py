@@ -115,32 +115,26 @@ class AttributionTests(unittest.TestCase):
         tom_effects = [e.get("name") for e in tom.get("effects", [])]
         self.assertIn("Bless", tom_effects)
 
-    def test_character_sheet_bound_for_players(self):
-        # Distinct on-disk sheets for Kara and Tom. Logged in as Kara, a GET for
-        # /character/Tom must resolve to Kara's own sheet (bind), never Tom's.
-        # Assert on real bytes: identical to /character/Kara, containing Kara's
-        # marker and not Tom's — not a vacuous 404==404.
+    def test_character_sheet_allows_party_members_for_players(self):
+        # A bound player may read a party member's sheet for the remote console;
+        # action endpoints remain bound by their own attribution tests.
         with tempfile.TemporaryDirectory() as root:
             chars = pathlib.Path(root) / "characters"
             chars.mkdir(parents=True)
-            (chars / "Kara.md").write_text("# Kara secret sheet\nKARA-ONLY")
             (chars / "Tom.md").write_text("# Tom secret sheet\nTOM-ONLY")
             prev = os.environ.get("GM_CAMPAIGN_ROOT")
             os.environ["GM_CAMPAIGN_ROOT"] = root
             try:
                 self._login("Kara")
                 r_tom = self.client.get("/character/Tom", headers=TUNNEL)
-                r_kara = self.client.get("/character/Kara", headers=TUNNEL)
             finally:
                 if prev is None:
                     os.environ.pop("GM_CAMPAIGN_ROOT", None)
                 else:
                     os.environ["GM_CAMPAIGN_ROOT"] = prev
         self.assertEqual(r_tom.status_code, 200, r_tom.get_data(as_text=True))
-        self.assertEqual(r_tom.get_data(), r_kara.get_data())
         body = r_tom.get_data(as_text=True)
-        self.assertIn("KARA-ONLY", body)
-        self.assertNotIn("TOM-ONLY", body)
+        self.assertIn("TOM-ONLY", body)
 
     def test_local_console_can_still_name_characters(self):
         # local role still goes through the device gate — present a device id
