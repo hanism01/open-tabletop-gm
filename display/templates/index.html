@@ -3069,7 +3069,7 @@
     <span id="input-toggle-arrow">▲</span>
   </div>
   <div id="input-body">
-    <section id="player-console" aria-label="Player console">
+    <section id="player-console" aria-label="Player console" tabindex="-1">
       <div id="player-roster" role="list" aria-label="Party roster"></div>
       <section id="message-dock" aria-label="Party actions">
         <div id="staged-queue"></div>
@@ -6205,10 +6205,14 @@ function closePlayerSheet() {
   document.body.classList.remove('player-sheet-open');
   document.body.style.top = '';
   window.scrollTo(0, _playerSheetScrollY);
-  if (_playerSheetInvoker && typeof _playerSheetInvoker.focus === 'function') {
-    _playerSheetInvoker.focus();
-  }
+  const invoker = _playerSheetInvoker;
   _playerSheetInvoker = null;
+  if (invoker && invoker.isConnected && typeof invoker.focus === 'function') {
+    invoker.focus();
+  } else {
+    const consoleEl = document.getElementById('player-console');
+    if (consoleEl) consoleEl.focus();
+  }
 }
 
 _playerSheetClose.addEventListener('click', closePlayerSheet);

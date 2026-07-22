@@ -84,6 +84,12 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn("event.key === 'Tab'", markup)
         self.assertIn("event.shiftKey", markup)
         self.assertIn("focusable[focusable.length - 1]", markup)
+        self.assertIn('<section id="player-console" aria-label="Player console" tabindex="-1">', markup)
+        close_start = markup.index("function closePlayerSheet()")
+        close_end = markup.index("\n}", close_start)
+        close_body = markup[close_start:close_end]
+        self.assertIn("isConnected", close_body)
+        self.assertIn("getElementById('player-console')", close_body)
 
     @classmethod
     def setUpClass(cls):
