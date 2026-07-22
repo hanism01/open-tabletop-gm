@@ -30,21 +30,31 @@ the existing markdown fetch (not a new tab).
 - Lives on the right side; no overlap with existing controls.
 
 ## 2. Pushable, non-covering dice roller
-**Ask:** a button opens the dice roller in a small modal/panel that does not cover the
-screen; the GM configures a requested roll and pushes it to the applicable player.
+**Ask:** when a roll is called for, the GM configures it for the occasion (dice, modifier,
+adv/dis, label, DC, target player) and pushes it; the targeted player gets a pre-filled,
+locked dice roller in a small modal/drawer that does not cover the screen, taps to roll,
+and the result returns to the GM.
 
-**SME second opinion:** the player-side pre-fill/lock is already built (`_applyDiceRequest`)
-but it **force-switches the player's tab to Roll** — screen-hijack, which contradicts
-"doesn't cover the screen." Replace the forced switch with a right-rail badge/FAB that opens
-a compact drawer. The GM side needs a small popover off each party card to configure and
-target the roll (a separate build from the player-side fix).
+**SME second opinion (corrected):** there is **no GM-console UI to build** — the GM here is
+the LLM agent, and its interface is the CLI. Configuring + pushing a targeted roll already
+exists: `scripts/dice_player.py <spec> --player <name> --label ... --dc ...` (or
+`display/send.py --dice-request`) POSTs `/dice-request`, which stores the request and
+broadcasts `dice_pending` over SSE. The earlier "popover off each party card" framing
+assumed a human GM clicking a browser console; that does not apply.
+
+The **only new work is player-side.** The pre-fill/lock is already built
+(`_applyDiceRequest`) but it **force-switches the player's whole screen to the Roll tab** —
+a hijack that contradicts "doesn't cover the screen." Replace the forced switch with a
+dismissible badge/FAB that opens a compact, non-covering roller over whatever pane the
+player is on.
 
 **Acceptance criteria:**
-- Dice roller opens in a compact drawer/panel that does not obscure the main view.
-- GM can configure a roll (dice, modifier, reason) and push it to a specific player.
-- The targeted player receives a pre-filled roll prompt as a badge/notification — not a
+- The GM configures and pushes a targeted roll via the existing CLI — no new GM-console UI.
+- The targeted player receives the pre-filled, locked roller as a badge/notification, not a
   forced tab switch.
-- Lives on the right side; no overlap.
+- Tapping the badge opens a compact modal/drawer that does not obscure the main view; the
+  player taps to roll and the result returns to the GM.
+- Dismissible without leaving the current pane.
 
 ## 3. Always-visible player message box + own staged messages
 **Ask:** an always-visible text box the player types into, showing all of that player's
@@ -113,6 +123,9 @@ blocked or broken third-party images. `art hide` removes the active image.
 ---
 
 ## Cross-cutting notes / flags (from the SME pass)
+- **The GM is the LLM agent, not a human at a console.** Anything framed as a "GM-side UI"
+  should be a CLI/tool the agent invokes (like `dice_player.py`), never a browser control.
+  These three features are entirely about the **remote player's** screen.
 - **Phone width ~375–430px:** the right rail needs a responsive breakpoint, not a straight
   column split. Below the breakpoint, fall back to stacking/drawers.
 - **Right-side contention:** all three features want the same space — define a stacking
