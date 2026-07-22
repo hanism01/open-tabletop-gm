@@ -8,8 +8,13 @@ from systems.paizo2e.packs import normalize_document, pack_category, strip_found
 class PackCategoryTests(unittest.TestCase):
     def test_maps_bestiaries_to_creatures_and_excludes_media(self):
         self.assertEqual(pack_category("packs/sf2e/alien-core/alien.yaml"), "creatures")
+        self.assertEqual(pack_category("packs/pf2e/monster-bestiary/ogre.yaml"), "creatures")
         self.assertEqual(pack_category("packs/pf2e/spells/fireball.yaml"), "spells")
         self.assertIsNone(pack_category("packs/pf2e/assets/logo.webp"))
+        for suffix in (".png", ".jpg", ".mp3", ".ogg"):
+            with self.subTest(suffix=suffix):
+                self.assertIsNone(pack_category(f"packs/pf2e/assets/logo{suffix}"))
+        self.assertIsNone(pack_category("packs/pf2e/unsupported/example.yaml"))
 
     def test_maps_direct_pack_directories(self):
         expected = {
@@ -43,6 +48,7 @@ system:
     value: '<p>Move up to your Speed.</p>'
   traits:
     value: [move]
+  internalOnly: should-not-be-exported
 """
         record = normalize_document(raw, "packs/pf2e/actions/stride.yaml", "actions")
         self.assertEqual(record["name"], "Stride")
@@ -52,6 +58,7 @@ system:
         self.assertEqual(record["traits"], ["move"])
         self.assertIsNone(record["level"])
         self.assertTrue(record["source_path"].endswith("stride.yaml"))
+        self.assertNotIn("internalOnly", record)
 
     def test_replaces_uuid_and_check_markup_and_removes_other_tokens(self):
         text = (
@@ -64,6 +71,7 @@ system:
     def test_rejects_nameless_and_non_mapping_yaml(self):
         self.assertIsNone(normalize_document("type: action", "packs/pf2e/actions/nope.yaml", "actions"))
         self.assertIsNone(normalize_document("- name: Not a document", "packs/pf2e/actions/nope.yaml", "actions"))
+        self.assertIsNone(normalize_document("name: [", "packs/pf2e/actions/nope.yaml", "actions"))
 
 
 if __name__ == "__main__":
