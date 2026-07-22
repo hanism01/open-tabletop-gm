@@ -143,6 +143,36 @@ Default: state, log, archive, world, npcs
 
 ---
 
+## Campaign Art — `scripts/art.py`
+
+The GM is the LLM and manages art through this CLI, not a browser-based GM UI. Art records are campaign-local in `~/open-tabletop-gm/campaigns/<campaign>/art.json`; saved records retain the original image URL, source URL, creator, and other source metadata.
+
+```bash
+CAMP=my-campaign
+
+# Search candidates. DeviantArt is the default source; use web only when explicitly requested.
+python3 <skill-base>/scripts/art.py search --campaign <campaign> --query "<subject>" [--source deviantart|web]
+
+# Persist a selected search candidate as a campaign record.
+python3 <skill-base>/scripts/art.py save --campaign <campaign> --candidate N --as ID --kind place|npc|creature
+
+# Locate or inspect saved records.
+python3 <skill-base>/scripts/art.py find --campaign <campaign> --query "<subject>"
+python3 <skill-base>/scripts/art.py list --campaign <campaign> [--kind place|npc|creature]
+
+# Amend or remove a saved record.
+python3 <skill-base>/scripts/art.py update --campaign <campaign> --id ID --title "Title" [--creator "Creator"] [--source-url "https://…"] [--image-url "https://…"] [--tags tag1,tag2] [--aliases alias1,alias2] [--notes "…"] [--status STATUS]
+python3 <skill-base>/scripts/art.py delete --campaign <campaign> --id ID
+
+# Make a saved record the one active display image, or clear it.
+python3 <skill-base>/scripts/art.py show --campaign <campaign> --id ID
+python3 <skill-base>/scripts/art.py hide
+```
+
+`show` and `hide` update the optional local display when it is running; the campaign workflow still works when it is offline. Use only original, human-created artwork: this workflow does not generate GenAI images and never automatically downloads, proxies, caches, or rehosts image files. It displays the original remote image and keeps its source link and creator metadata with the record.
+
+---
+
 ## Display Companion — `display/push_stats.py`
 
 Pushes character and combat stats to the sidebar. Players are merged by name; partial updates are safe.
