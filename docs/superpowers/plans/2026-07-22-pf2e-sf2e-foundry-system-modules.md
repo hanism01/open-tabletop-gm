@@ -363,15 +363,17 @@ git commit -m "feat: add Starfinder Second Edition module"
 - Modify: `tests/test_paizo2e_source.py`
 - Modify: `tests/test_paizo2e_lookup.py`
 
-- [ ] **Step 1: Add integration tests for separate generated dataset paths and wrapper error messages.**
+- [x] **Step 1: Add integration tests for separate generated dataset paths and wrapper error messages.**
 
-```python
-def test_pf2e_and_sf2e_wrappers_use_distinct_generated_files():
-    assert "pf2e_foundry.json" in PF2E_LOOKUP_SOURCE
-    assert "sf2e_foundry.json" in SF2E_LOOKUP_SOURCE
-```
+Already implemented. The lookup wrappers expose `DATA_PATH` (there is no `*_LOOKUP_SOURCE` constant). The dataset-isolation assertion lives in `tests/test_paizo2e_lookup.py::test_system_wrappers_reference_only_their_own_dataset`:
 
-Also test that a simulated fetch failure leaves a pre-existing output file byte-for-byte unchanged.
+    def test_system_wrappers_reference_only_their_own_dataset(self):
+        from systems.pf2e.lookup import DATA_PATH as pf2e_data_path
+        from systems.sf2e.lookup import DATA_PATH as sf2e_data_path
+        self.assertTrue(str(pf2e_data_path).endswith("pf2e_foundry.json"))
+        self.assertTrue(str(sf2e_data_path).endswith("sf2e_foundry.json"))
+
+The "fetch failure leaves a pre-existing output file byte-for-byte unchanged" case is covered in `tests/test_paizo2e_source.py`.
 
 - [ ] **Step 2: Run the new tests before changing documentation.**
 
