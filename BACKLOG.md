@@ -80,6 +80,10 @@ tab. Pin the textarea + the whole-party staged queue so they stay visible across
   authenticated character); transparency of viewing does not weaken submit-side identity.
 
 ## 4. LLM-driven campaign art library + display image
+**Shipped:** implemented — `scripts/art.py` has all subcommands (search/save/find/list/
+update/delete/show/hide), the `/art` route exists in `display/gm-display-app.py`, and
+usage is documented in SKILL-commands.md and SKILL-scripts.md.
+
 **Ask:** let the GM LLM find and show reference art in the web display, then save
 recurring images for places, NPCs, and generic creature archetypes. This is a GM tool
 workflow, not a human-operated search console and not a generative-image feature.

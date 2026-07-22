@@ -192,7 +192,7 @@ Local-only typed-edge relationship graph supplementing markdown. Stored at `~/op
 
 **Auto-pulled at `/gm load`** (scene-context, see SKILL-branches.md → `/gm load` → Step 4) and **swept at `/gm save`** (relationship-shift extraction, see SKILL-branches.md → `/gm save` → Step 4). The GM also uses `/gm graph scene-context` on demand mid-session, especially before heavy social or political scenes.
 
-This fork ships a **manual + query-only** graph. The Haiku-backed `extract` / `extract-apply` subcommands from the upstream claude-dnd-skill are intentionally not included — they require Claude API access. When the deterministic Phase 2 verb-table extractor is built it will land here as a fully local replacement.
+This fork ships a **manual + query** graph plus a deterministic, LLM-free extractor. The Haiku-backed `extract` / `extract-apply` subcommands from the upstream claude-dnd-skill are not used — instead this fork's own `extract` / `extract-apply` subcommands (documented below) run the local verb-table matcher, with no Claude API dependency.
 
 All subcommands invoke `python3 <skill-base>/scripts/gm_graph.py <subcommand> --campaign <name> [args]`.
 
