@@ -17,7 +17,7 @@ about `tea` (Gitea CLI) does not apply to this project.
 
 ### Push safety
 - `main` tracks `origin/main`. A bare `git push` from `main` goes to your fork. Never push `main` to `upstream`.
-- **`gh` resolves its default repo to `upstream` (Bobby-Gray/open-tabletop-gm).** To act on your fork, pass `-R hanism01/open-tabletop-gm` (e.g. `gh issue list -R hanism01/open-tabletop-gm`). Without `-R`, `gh issue list` / `gh pr list` show the **upstream** project's issues and PRs.
+- **`gh`'s default repo is set to your fork** (`hanism01/open-tabletop-gm`) via `gh repo set-default` — separate from git branch tracking. But **your fork has issues disabled**, so the project's issues and PRs live on **upstream**. To view/triage them: `gh issue list -R Bobby-Gray/open-tabletop-gm` / `gh pr list -R Bobby-Gray/open-tabletop-gm`.
 
 ## Workflow
 
