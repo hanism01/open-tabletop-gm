@@ -3826,10 +3826,13 @@ function _announceSceneArt(message) {
 }
 
 function clearSceneArt() {
+  const hadArt = Boolean(_sceneArtHost);
+  if (hadArt) _flushForBlock();
   if (_sceneArtHost) _sceneArtHost.remove();
   _sceneArtHost = null;
   _sceneArtKey = null;
   _sceneArtCollapsedKey = null;
+  if (hadArt) _reanchorCursor();
 }
 
 function renderSceneArt(art) {
@@ -3837,6 +3840,7 @@ function renderSceneArt(art) {
   const key = _sceneArtIdentity(art);
   if (key === _sceneArtKey && _sceneArtHost) return;
 
+  _flushForBlock();
   const changed = _sceneArtKey !== null && key !== _sceneArtKey;
   if (_sceneArtHost) _sceneArtHost.remove();
   _sceneArtHost = null;
@@ -3860,7 +3864,7 @@ function renderSceneArt(art) {
     hide.type = 'button';
     hide.className = 'scene-art-toggle';
     hide.textContent = 'Hide scene art';
-    hide.setAttribute('aria-expanded', 'true');
+    hide.setAttribute('aria-label', `Hide scene art: ${art.title || 'scene'}`);
     header.append(title, category, hide);
 
     const image = document.createElement('img');
@@ -3891,18 +3895,22 @@ function renderSceneArt(art) {
     panel.append(header, image, failure, caption);
 
     hide.addEventListener('click', () => {
+      _flushForBlock();
       _sceneArtCollapsedKey = key;
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'scene-art-show-chip';
       chip.textContent = `Show scene art: ${art.title || 'scene'}`;
-      chip.setAttribute('aria-expanded', 'false');
+      chip.setAttribute('aria-label', `Show scene art: ${art.title || 'scene'}`);
       chip.addEventListener('click', () => {
+        _flushForBlock();
         _sceneArtCollapsedKey = null;
         show();
+        _reanchorCursor();
       });
       panel.replaceWith(chip);
       _sceneArtHost = chip;
+      _reanchorCursor();
     });
 
     if (_sceneArtHost) _sceneArtHost.replaceWith(panel);
@@ -3916,14 +3924,20 @@ function renderSceneArt(art) {
     chip.type = 'button';
     chip.className = 'scene-art-show-chip';
     chip.textContent = `Show scene art: ${art.title || 'scene'}`;
-    chip.setAttribute('aria-expanded', 'false');
-    chip.addEventListener('click', () => { _sceneArtCollapsedKey = null; show(); });
+    chip.setAttribute('aria-label', `Show scene art: ${art.title || 'scene'}`);
+    chip.addEventListener('click', () => {
+      _flushForBlock();
+      _sceneArtCollapsedKey = null;
+      show();
+      _reanchorCursor();
+    });
     textContent.appendChild(chip);
     _sceneArtHost = chip;
   } else {
     show();
     _announceSceneArt(`New scene art: ${art.title || 'scene art'}`);
   }
+  _reanchorCursor();
   scrollToBottom();
 }
 

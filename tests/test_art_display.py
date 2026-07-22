@@ -48,6 +48,12 @@ class BrowserArtDisplayContractTests(unittest.TestCase):
         self.assertIn("sourceLink.rel = 'noopener noreferrer'", renderer)
         self.assertIn("sourceLink.textContent", renderer)
         self.assertIn("image.addEventListener('error'", renderer)
+        self.assertIn("failure.hidden = false", renderer)
+        self.assertIn("_flushForBlock()", renderer)
+        self.assertIn("_reanchorCursor()", renderer)
+        self.assertNotIn("aria-expanded", renderer)
+        self.assertIn("aria-label", renderer)
+        self.assertIn("document.createElement('button')", renderer)
 
     def test_sse_art_open_replace_and_clear_are_handled(self):
         self.assertIn("if (payload.art !== undefined)", self.template)
@@ -55,6 +61,18 @@ class BrowserArtDisplayContractTests(unittest.TestCase):
         self.assertIn("clearSceneArt()", self.template)
         self.assertIn("scene-art-toggle", self.template)
         self.assertIn("aria-live", self.template)
+        start = self.template.index("function renderSceneArt(")
+        end = self.template.index("let charQueue", start)
+        renderer = self.template[start:end]
+        self.assertIn("if (!art) { clearSceneArt(); return; }", renderer)
+        self.assertIn("if (key === _sceneArtKey && _sceneArtHost) return;", renderer)
+        self.assertIn("if (changed) _sceneArtCollapsedKey = null;", renderer)
+        self.assertIn("if (_sceneArtCollapsedKey === key)", renderer)
+        clear_start = self.template.index("function clearSceneArt()")
+        clear_end = self.template.index("function renderSceneArt(", clear_start)
+        clear_renderer = self.template[clear_start:clear_end]
+        self.assertIn("_flushForBlock()", clear_renderer)
+        self.assertIn("_reanchorCursor()", clear_renderer)
 
 
 def _import_app():
