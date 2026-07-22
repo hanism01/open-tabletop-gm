@@ -51,9 +51,8 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
             r"#message-dock\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*gap:\s*9px;",
         )
         self.assertRegex(markup, r"#player-roster,\s*#dice-fab\s*\{\s*display:\s*none;")
-        self.assertNotIn('aria-controls="dice-drawer"', markup)
         self.assertIn(
-            'id="dice-fab" type="button" disabled aria-label="Dice roller available when the drawer loads"',
+            'id="dice-fab" type="button" aria-controls="dice-drawer" aria-label="Open dice roller"',
             markup,
         )
 
@@ -91,6 +90,79 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn("isConnected", close_body)
         self.assertIn("getElementById('player-console')", close_body)
 
+    def test_dice_drawer_hosts_the_pad_and_fab_opens_it(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        self.assertIn('id="dice-drawer"', markup)
+        self.assertIn('id="dice-drawer-panel"', markup)
+        self.assertIn('id="dice-drawer-close"', markup)
+        self.assertIn("function openDiceDrawer", markup)
+        self.assertIn('id="dice-fab" type="button" aria-controls="dice-drawer" aria-label="Open dice roller"', markup)
+        # The pad markup now lives inside the drawer shell.
+        self.assertLess(markup.index('id="dice-drawer"'), markup.index('id="dice-pad"'))
+        # The pad is initialised again (Task 2 removed the call pending this drawer).
+        self.assertIn("_initDicePad();", markup)
+        self.assertNotIn("body.input-only #dice-pad { display: none !important; }", markup)
+
+    def test_request_arrival_records_and_badges_without_hijacking(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        start = markup.index("function _applyDiceRequest")
+        body = markup[start:markup.index("\n  }", start)]
+        self.assertIn("_pendingDiceRequest", body)
+        self.assertIn("showDiceRequestBadge", body)
+        # Real non-hijack guards (behavioral proof itself lands in Task 5's browser proof):
+        self.assertNotIn("openDiceDrawer", body)
+        self.assertNotIn("_setLocked", body)
+        self.assertNotIn(".click()", body)
+        self.assertNotIn("_activeRequestId =", body)
+
+    def test_opening_drawer_from_badge_prefills_and_locks(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        start = markup.index("function openDiceDrawer")
+        body = markup[start:markup.index("\n  }", start)]
+        self.assertIn("_activeRequestId = String(req.request_id", body)
+        self.assertIn("_syncAdvAvailability()", body)
+        self.assertIn("_setLocked(true", body)
+        self.assertNotIn(".click()", body)   # direct state-setting, not synthetic clicks
+
+    def test_player_badge_is_driven_by_dice_pending_snapshot(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        self.assertIn("window._onDicePendingSnapshot", markup)
+        # SSE dice_pending branch feeds the player badge alongside the DM badge.
+        self.assertIn("_onDicePendingSnapshot(payload.dice_pending)", markup)
+        self.assertIn('id="dice-request-badge"', markup)
+        self.assertIn('id="dice-request-dismiss"', markup)
+        self.assertIn("function hideDiceRequestBadge", markup)
+
+    def test_cancellation_clears_badge_and_record(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        start = markup.index("function _onDiceRequestCancelled")
+        body = markup[start:markup.index("\n  }", start)]
+        self.assertIn("hideDiceRequestBadge", body)
+        self.assertIn("_pendingDiceRequest = null", body)
+
+    def test_dice_request_pending_drains_when_bound_player_rolls(self):
+        # Server contract behind the badge: /dice-request registers a pending entry
+        # for Kara; Kara's authenticated roll echoing the request_id drains it.
+        issue = self.client.post(
+            "/dice-request",
+            headers={"X-GM-Secret": "test-gm-secret"},
+            data=json.dumps({"character": "Kara", "spec": "1d20", "modifier": 2,
+                             "label": "Stealth", "dc": 15}),
+            content_type="application/json")
+        self.assertEqual(issue.status_code, 200, issue.get_data(as_text=True))
+        request_id = issue.get_json()["request_id"]
+        snapshot = self.mod._dice_pending_snapshot()
+        self.assertEqual([e["pending"] for e in snapshot if e["request_id"] == request_id], [["Kara"]])
+        self._login("Kara")
+        roll = self.client.post(
+            "/player-input/dice", headers=TUNNEL_ORIGIN,
+            data=json.dumps({"character": "Kara", "spec": "1d20", "modifier": 2,
+                             "advantage": "normal", "label": "Stealth",
+                             "request_id": request_id}),
+            content_type="application/json")
+        self.assertEqual(roll.status_code, 200, roll.get_data(as_text=True))
+        self.assertEqual(self.mod._dice_pending_snapshot(), [])
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()
@@ -100,6 +172,7 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         cls.mod._INVITE_SECRET = cls.secret
         cls.mod._REVOCATION = tokens.RevocationStore(directory / ".revoked.json")
         cls.mod._ALLOWED_ORIGINS = {ORIGIN, "http://localhost:5001"}
+        cls.mod._GM_SECRET = "test-gm-secret"
         cls.client = cls.mod.app.test_client()
 
     @classmethod
@@ -109,6 +182,7 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
     def setUp(self):
         self.mod._staged.clear()
         self.mod._current_stats = {"players": [{"name": "Kara"}, {"name": "Tom"}]}
+        self.mod._dice_pending.clear()
 
     def tearDown(self):
         self.client.delete_cookie("gm_session")

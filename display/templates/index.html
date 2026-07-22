@@ -2045,6 +2045,42 @@
     text-transform: uppercase;
   }
 
+  /* Player-side "a roll is waiting on you" badge — dismissible, never blocking. */
+  #dice-request-badge {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    margin: 0 12px 12px;
+  }
+  #dice-request-badge[hidden] { display: none !important; }
+  body.input-only #dice-request-badge:not([hidden]) { display: flex; }
+  #dice-request-open {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid rgba(220,180,90,0.55);
+    border-radius: 22px;
+    background: rgba(20,12,4,0.92);
+    color: #f4e2a8;
+    font: 600 13px/1.3 ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 0 0 0 rgba(255,220,140,0.5);
+    animation: dpb-pulse 1.6s ease-in-out infinite;
+  }
+  #dice-request-dismiss {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid rgba(220,180,90,0.45);
+    border-radius: 50%;
+    background: rgba(30,20,8,0.9);
+    color: #f4e2a8;
+    cursor: pointer;
+    font-size: 16px;
+  }
+
   /* Party sheets stay a phone-only layer over the persistent message dock. */
   #player-sheet-overlay { display: none; }
   body.input-only #player-roster {
@@ -2125,9 +2161,49 @@
     font-size: 16px !important;
   }
 
+  /* Phone-only dice drawer; mirrors #player-sheet-overlay's slide-over pattern. */
+  #dice-drawer { display: none; }
+  body.input-only #dice-drawer.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0,0,0,0.68);
+  }
+  body.input-only.dice-drawer-open {
+    position: fixed;
+    width: 100%;
+    overflow: hidden;
+  }
+  body.input-only #dice-drawer-panel {
+    position: absolute;
+    inset: auto 0 0 0;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 16px 16px max(24px, env(safe-area-inset-bottom));
+    background: rgba(12,8,4,0.98);
+    border-top: 1px solid rgba(220,180,90,0.45);
+    animation: dice-drawer-slide-in 0.2s ease-out;
+  }
+  body.input-only #dice-drawer-close {
+    position: sticky;
+    top: 0;
+    float: right;
+    z-index: 1;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid rgba(220,180,90,0.45);
+    border-radius: 50%;
+    background: rgba(30,20,8,0.96);
+    color: #f4e2a8;
+    cursor: pointer;
+    font-size: 20px;
+  }
+  @keyframes dice-drawer-slide-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  body.input-only #dice-drawer.open #dice-pad { display: block; }
+
   /* ── Phone dice pad (visible only in input-only view) ────────────────── */
   #dice-pad { display: none; }
-  body.input-only #dice-pad { display: none !important; }
   #dice-pad .dp-row {
     display: flex;
     gap: 6px;
@@ -3083,8 +3159,36 @@
           <button id="stage-btn">Stage</button>
         </div>
       </section>
-      <button id="dice-fab" type="button" disabled aria-label="Dice roller available when the drawer loads">Dice</button>
+      <button id="dice-fab" type="button" aria-controls="dice-drawer" aria-label="Open dice roller">Dice</button>
+      <div id="dice-request-badge" hidden>
+        <button id="dice-request-open" type="button"></button>
+        <button id="dice-request-dismiss" type="button" aria-label="Dismiss dice request notification">✕</button>
+      </div>
     </section>
+  </div>
+</div>
+
+<!-- Character sheet modal (click any player card in the sidebar to open) -->
+<div id="sheet-modal">
+  <div id="sheet-panel">
+    <button id="sheet-close" title="Close (Esc)">✕</button>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<!-- Phone-only party sheet; it overlays rather than replacing the message dock. -->
+<div id="player-sheet-overlay" role="presentation" aria-hidden="true">
+  <section id="player-sheet-panel" role="dialog" aria-modal="true" aria-label="Character sheet">
+    <button id="player-sheet-close" type="button" aria-label="Close character sheet">✕</button>
+    <div id="cp-status" role="status"></div>
+    <div id="cp-body"></div>
+  </section>
+</div>
+
+<!-- Phone-only dice drawer; serves both free rolls (FAB) and GM-requested rolls (badge). -->
+<div id="dice-drawer" role="presentation" aria-hidden="true">
+  <section id="dice-drawer-panel" role="dialog" aria-modal="true" aria-label="Dice roller">
+    <button id="dice-drawer-close" type="button" aria-label="Close dice roller">✕</button>
     <!-- Phone-only dice pad (shown by ?view=input) -->
     <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
@@ -3124,23 +3228,6 @@
         <button id="dp-roll">Roll</button>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- Character sheet modal (click any player card in the sidebar to open) -->
-<div id="sheet-modal">
-  <div id="sheet-panel">
-    <button id="sheet-close" title="Close (Esc)">✕</button>
-    <div id="sheet-content"></div>
-  </div>
-</div>
-
-<!-- Phone-only party sheet; it overlays rather than replacing the message dock. -->
-<div id="player-sheet-overlay" role="presentation" aria-hidden="true">
-  <section id="player-sheet-panel" role="dialog" aria-modal="true" aria-label="Character sheet">
-    <button id="player-sheet-close" type="button" aria-label="Close character sheet">✕</button>
-    <div id="cp-status" role="status"></div>
-    <div id="cp-body"></div>
   </section>
 </div>
 
@@ -6185,6 +6272,10 @@ function renderPlayerRoster(players) {
 
 function openCharacterSheet(name) {
   if (!_playerSheetOverlay || !name) return;
+  const _drawerEl = document.getElementById('dice-drawer');
+  if (_drawerEl && _drawerEl.classList.contains('open') && typeof window._closeDiceDrawer === 'function') {
+    window._closeDiceDrawer();
+  }
   _playerSheetInvoker = document.activeElement;
   _playerSheetScrollY = window.scrollY;
   document.body.classList.add('player-sheet-open');
@@ -6770,7 +6861,10 @@ function connect() {
       window._onDiceRequestCancelled(payload.dice_request_cancelled);
     }
     if (payload.dice_pending !== undefined) {
-      _updateDicePendingBadge(payload.dice_pending);
+      _updateDicePendingBadge(payload.dice_pending);                       // DM badge (unchanged)
+      if (typeof window._onDicePendingSnapshot === 'function') {
+        window._onDicePendingSnapshot(payload.dice_pending);               // player badge
+      }
     }
     if (payload.art !== undefined) {
       renderSceneArt(payload.art);
@@ -6913,6 +7007,7 @@ connect();
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
+    _initDicePad();
   }
   _initModeSwitcher(_inputMode);
 }
@@ -7199,6 +7294,122 @@ function _initDicePad() {
   let _activeRequestId = '';
   reel.textContent = 'd20';
 
+  // ── Dice drawer: one shell serving both free rolls (FAB) and GM-requested
+  // rolls (badge). A GM request never hijacks the screen on arrival — it is
+  // only recorded (_pendingDiceRequest) and badged; prefill/lock happen only
+  // when the player opens the drawer (see openDiceDrawer below).
+  let _pendingDiceRequest = null;
+  const _dismissedRequestIds = new Set();
+  const _diceDrawerEl = document.getElementById('dice-drawer');
+  const _diceDrawerClose = document.getElementById('dice-drawer-close');
+  const _diceRequestBadge = document.getElementById('dice-request-badge');
+  const _diceRequestOpenBtn = document.getElementById('dice-request-open');
+  const _diceRequestDismissBtn = document.getElementById('dice-request-dismiss');
+  const _diceFabBtn = document.getElementById('dice-fab');
+  let _diceDrawerInvoker = null;
+  let _diceDrawerScrollY = 0;
+
+  function showDiceRequestBadge(req) {
+    if (!_diceRequestBadge || !_diceRequestOpenBtn || !req) return;
+    const dcStr = (req.dc != null) ? ` · DC ${req.dc}` : '';
+    _diceRequestOpenBtn.textContent = `🎲 ${req.label || (req.spec || 'd20')}${dcStr}`;
+    _diceRequestBadge.hidden = false;
+  }
+
+  function hideDiceRequestBadge() {
+    if (!_diceRequestBadge) return;
+    _diceRequestBadge.hidden = true;
+  }
+
+  function openDiceDrawer(req) {
+    if (!_diceDrawerEl) return;
+    if (_playerSheetOverlay && _playerSheetOverlay.classList.contains('open')) {
+      closePlayerSheet();
+    }
+    _diceDrawerInvoker = document.activeElement;
+    _diceDrawerScrollY = window.scrollY;
+    document.body.classList.add('dice-drawer-open');
+    document.body.style.top = `-${_diceDrawerScrollY}px`;
+    _diceDrawerEl.classList.add('open');
+    _diceDrawerEl.setAttribute('aria-hidden', 'false');
+    if (_diceDrawerClose) _diceDrawerClose.focus();
+
+    if (req) {
+      _activeRequestId = String(req.request_id || '');
+      const reqSpec = (req.spec || '1d20').toLowerCase();
+      spec = document.querySelector(`.dp-die[data-spec="${reqSpec}"]`) ? reqSpec : '1d20';
+      document.querySelectorAll('#dp-die-row .dp-die').forEach(b =>
+        b.classList.toggle('active', b.dataset.spec === spec));
+      if (!reel.classList.contains('spinning')) reel.textContent = spec.replace('1d', 'd');
+      adv = (spec === '1d20') ? (req.advantage || 'normal') : 'normal';
+      document.querySelectorAll('.dp-adv').forEach(b =>
+        b.classList.toggle('active', b.dataset.adv === adv));
+      _syncAdvAvailability();                       // single availability/class pass
+      mod = Math.max(-30, Math.min(30, Number(req.modifier) || 0));
+      modVal.textContent = (mod >= 0 ? '+' : '') + mod;
+      labelEl.value = (req.label || '').trim();
+      if (boundEl) {
+        const dcStr = (req.dc != null) ? ` · DC ${req.dc}` : '';
+        const desc  = (req.label || '').trim() || (spec === '1d20' ? 'Roll d20' : `Roll ${spec}`);
+        let r = boundEl.querySelector('.req');
+        if (!r) { r = document.createElement('span'); r.className = 'req'; boundEl.appendChild(r); }
+        r.textContent = `↻ ${desc}${dcStr}`;
+      }
+      rollBtn.disabled = false;
+      rollBtn.classList.remove('rolled');
+      rollBtn.classList.add('pulse');
+      _setLocked(true, spec, adv);
+    } else if (!_activeRequestId && rollBtn.classList.contains('rolled')) {
+      // Free-roll path: if the pad is still in the post-prescribed "rolled"
+      // lock with no live request, unlock it so it is usable for a free roll.
+      _setLocked(false);
+      rollBtn.disabled = false;
+      rollBtn.classList.remove('rolled');
+    }
+  }
+
+  function closeDiceDrawer() {
+    if (!_diceDrawerEl) return;
+    _diceDrawerEl.classList.remove('open');
+    _diceDrawerEl.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('dice-drawer-open');
+    document.body.style.top = '';
+    window.scrollTo(0, _diceDrawerScrollY);
+    const invoker = _diceDrawerInvoker;
+    _diceDrawerInvoker = null;
+    if (invoker && invoker.isConnected && typeof invoker.focus === 'function') {
+      invoker.focus();
+    } else {
+      const consoleEl = document.getElementById('player-console');
+      if (consoleEl) consoleEl.focus();
+    }
+  }
+  window._closeDiceDrawer = closeDiceDrawer;
+
+  if (_diceFabBtn) _diceFabBtn.addEventListener('click', () => openDiceDrawer());
+  if (_diceDrawerClose) _diceDrawerClose.addEventListener('click', closeDiceDrawer);
+  if (_diceDrawerEl) {
+    _diceDrawerEl.addEventListener('click', event => {
+      if (event.target === _diceDrawerEl) closeDiceDrawer();
+    });
+  }
+  if (_diceRequestOpenBtn) {
+    _diceRequestOpenBtn.addEventListener('click', () => {
+      if (_pendingDiceRequest) openDiceDrawer(_pendingDiceRequest);
+    });
+  }
+  if (_diceRequestDismissBtn) {
+    _diceRequestDismissBtn.addEventListener('click', () => {
+      if (_pendingDiceRequest) _dismissedRequestIds.add(_pendingDiceRequest.request_id);
+      hideDiceRequestBadge();
+    });
+  }
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && _diceDrawerEl && _diceDrawerEl.classList.contains('open')) {
+      closeDiceDrawer();
+    }
+  });
+
   function _syncAdvAvailability() {
     const isD20 = (spec === '1d20');
     document.querySelectorAll('.dp-adv').forEach(b => {
@@ -7335,6 +7546,8 @@ function _initDicePad() {
         done.textContent = '✓ Rolled — waiting for DM';
       }
       _activeRequestId = '';
+      hideDiceRequestBadge();
+      _pendingDiceRequest = null;
     } else {
       // Free-roll path: unlock so the player can roll again freely.
       rollBtn.disabled = false;
@@ -7377,41 +7590,11 @@ function _initDicePad() {
     const isAny   = targets.includes('any');
     if (!isAny && !targets.includes(me)) return;                  // not for this phone
 
-    _activeRequestId = String(req.request_id || '');
-
-    // Spec → click the matching die button. If unknown, fall back to d20.
-    const reqSpec = (req.spec || '1d20').toLowerCase();
-    const dieBtn  = document.querySelector(`.dp-die[data-spec="${reqSpec}"]`)
-                 || document.querySelector('.dp-die[data-spec="1d20"]');
-    if (dieBtn) dieBtn.click();
-
-    // Adv/dis (only meaningful on 1d20; _syncAdvAvailability gates the rest).
-    const advBtn = document.querySelector(`.dp-adv[data-adv="${req.advantage || 'normal'}"]`);
-    if (advBtn && !advBtn.hasAttribute('disabled')) advBtn.click();
-
-    // Modifier — jump straight to the requested value rather than +/- ticking.
-    mod = Math.max(-30, Math.min(30, Number(req.modifier) || 0));
-    modVal.textContent = (mod >= 0 ? '+' : '') + mod;
-
-    // Label / DC line.
-    const baseLabel = (req.label || '').trim();
-    labelEl.value = baseLabel;
-    if (boundEl) {
-      const dcStr = (req.dc != null) ? ` · DC ${req.dc}` : '';
-      const desc  = baseLabel || (reqSpec === '1d20' ? 'Roll d20' : `Roll ${reqSpec}`);
-      let r = boundEl.querySelector('.req');
-      if (!r) { r = document.createElement('span'); r.className = 'req'; boundEl.appendChild(r); }
-      r.textContent = `↻ ${desc}${dcStr}`;
-    }
-
-    rollBtn.disabled = false;                 // re-enable after a previous "rolled" lock
-    rollBtn.classList.remove('rolled');
-    rollBtn.classList.add('pulse');
+    // Record only — never hijack the screen. Prefill + lock happen only when
+    // the player opens the drawer from the badge (see Amendment 1).
+    _pendingDiceRequest = req;
+    showDiceRequestBadge(req);
     if (navigator.vibrate) navigator.vibrate([20, 60, 20]);
-
-    // Lock everything except the prescribed die + adv button + Roll.
-    _setLocked(true, reqSpec, (req.advantage || 'normal'));
-
   }
   window._onDiceRequest = _applyDiceRequest;
 
@@ -7422,7 +7605,17 @@ function _initDicePad() {
   // Cancellations for other phones (or for requests we never received) are
   // safely ignored.
   function _onDiceRequestCancelled(rid) {
-    if (!rid || rid !== _activeRequestId) return;
+    if (!rid) return;
+    const cancelsPending = _pendingDiceRequest && rid === _pendingDiceRequest.request_id;
+    const cancelsActive  = rid === _activeRequestId;
+    if (!cancelsPending && !cancelsActive) return;
+
+    if (cancelsPending) {
+      hideDiceRequestBadge();
+      _pendingDiceRequest = null;
+    }
+    if (!cancelsActive) return;
+
     _activeRequestId = '';
     if (_locked) _setLocked(false);
     rollBtn.disabled = false;
@@ -7439,6 +7632,39 @@ function _initDicePad() {
     }
   }
   window._onDiceRequestCancelled = _onDiceRequestCancelled;
+
+  // ── Player-side badge, driven by the replayed dice_pending snapshot (see
+  // Amendment 2). Authoritative for badge *visibility* on connect/reconnect.
+  function _onDicePendingSnapshot(snapshot) {
+    const me = (nameEl.value || '').trim().toLowerCase();
+    const matches = (Array.isArray(snapshot) ? snapshot : []).filter(e =>
+      e && (e.pending || []).some(n => String(n).toLowerCase() === me) &&
+      !_dismissedRequestIds.has(e.request_id));
+
+    if (matches.length) {
+      const last = matches[matches.length - 1];
+      const record = (_pendingDiceRequest && _pendingDiceRequest.request_id === last.request_id)
+        ? _pendingDiceRequest
+        : { request_id: last.request_id, label: last.label };
+      _pendingDiceRequest = record;
+      showDiceRequestBadge(record);
+      return;
+    }
+
+    hideDiceRequestBadge();
+    _pendingDiceRequest = null;
+    if (_locked && !_activeRequestId) {
+      _activeRequestId = '';
+      _setLocked(false);
+      rollBtn.disabled = false;
+      rollBtn.classList.remove('pulse', 'rolled');
+      if (boundEl) {
+        const r = boundEl.querySelector('.req');
+        if (r) r.remove();
+      }
+    }
+  }
+  window._onDicePendingSnapshot = _onDicePendingSnapshot;
 }
 </script>
 </body>
