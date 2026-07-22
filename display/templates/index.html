@@ -2095,7 +2095,7 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 11px;
     border: 1px solid rgba(220,180,90,0.42);
     border-radius: 999px;
@@ -6270,6 +6270,29 @@ function renderPlayerRoster(players) {
   });
 }
 
+// The base console goes inert while either overlay is up; the overlays are
+// siblings of #input-panel, so marking the panel inert hides the whole console
+// from AT and the tab order. The Tab trap below stays authoritative — inert is
+// defense-in-depth (and covers older engines poorly, hence both).
+function _setConsoleInert(on) {
+  const panel = document.getElementById('input-panel');
+  if (!panel) return;
+  if (on) {
+    panel.setAttribute('inert', '');
+    panel.setAttribute('aria-hidden', 'true');
+  } else {
+    panel.removeAttribute('inert');
+    panel.removeAttribute('aria-hidden');
+  }
+}
+
+function _openOverlayEl() {
+  if (_playerSheetOverlay && _playerSheetOverlay.classList.contains('open')) return _playerSheetOverlay;
+  const drawer = document.getElementById('dice-drawer');
+  if (drawer && drawer.classList.contains('open')) return drawer;
+  return null;
+}
+
 function openCharacterSheet(name) {
   if (!_playerSheetOverlay || !name) return;
   const _drawerEl = document.getElementById('dice-drawer');
@@ -6282,6 +6305,7 @@ function openCharacterSheet(name) {
   document.body.style.top = `-${_playerSheetScrollY}px`;
   _playerSheetOverlay.classList.add('open');
   _playerSheetOverlay.setAttribute('aria-hidden', 'false');
+  _setConsoleInert(true);
   document.getElementById('cp-status').textContent = '';
   document.getElementById('cp-body').innerHTML = '';
   _playerSheetClose.focus();
@@ -6295,6 +6319,7 @@ function closePlayerSheet() {
   _playerSheetOverlay.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('player-sheet-open');
   document.body.style.top = '';
+  _setConsoleInert(false);
   window.scrollTo(0, _playerSheetScrollY);
   const invoker = _playerSheetInvoker;
   _playerSheetInvoker = null;
@@ -6315,8 +6340,9 @@ document.addEventListener('keydown', event => {
     closePlayerSheet();
     return;
   }
-  if (event.key === 'Tab' && _playerSheetOverlay.classList.contains('open')) {
-    const focusable = _playerSheetOverlay.querySelectorAll(
+  const trapRoot = (event.key === 'Tab') ? _openOverlayEl() : null;
+  if (trapRoot) {
+    const focusable = trapRoot.querySelectorAll(
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     );
     const first = focusable[0];
@@ -7332,6 +7358,7 @@ function _initDicePad() {
     document.body.style.top = `-${_diceDrawerScrollY}px`;
     _diceDrawerEl.classList.add('open');
     _diceDrawerEl.setAttribute('aria-hidden', 'false');
+    _setConsoleInert(true);
     if (_diceDrawerClose) _diceDrawerClose.focus();
 
     if (req) {
@@ -7374,6 +7401,7 @@ function _initDicePad() {
     _diceDrawerEl.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('dice-drawer-open');
     document.body.style.top = '';
+    _setConsoleInert(false);
     window.scrollTo(0, _diceDrawerScrollY);
     const invoker = _diceDrawerInvoker;
     _diceDrawerInvoker = null;
@@ -7654,7 +7682,6 @@ function _initDicePad() {
     hideDiceRequestBadge();
     _pendingDiceRequest = null;
     if (_locked && !_activeRequestId) {
-      _activeRequestId = '';
       _setLocked(false);
       rollBtn.disabled = false;
       rollBtn.classList.remove('pulse', 'rolled');

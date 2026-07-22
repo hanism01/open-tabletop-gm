@@ -163,6 +163,65 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertEqual(roll.status_code, 200, roll.get_data(as_text=True))
         self.assertEqual(self.mod._dice_pending_snapshot(), [])
 
+    def test_phone_overlays_stay_scoped_with_close_controls_and_breakpoint(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        # Console + overlay styling is scoped to the phone view, never the GM display.
+        self.assertIn("body.input-only #message-dock", markup)
+        self.assertIn("body.input-only #dice-drawer", markup)
+        self.assertIn("body.input-only #player-sheet-overlay", markup)
+        # The template's real phone breakpoint anchor (there is no 430px query).
+        self.assertIn("@media (max-width: 700px)", markup)
+        # Each overlay carries its own labelled close control.
+        self.assertIn('id="player-sheet-close" type="button" aria-label="Close character sheet"', markup)
+        self.assertIn('id="dice-drawer-close" type="button" aria-label="Close dice roller"', markup)
+
+    def test_roster_chips_meet_44px_touch_target(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        chip_start = markup.index("body.input-only .player-roster-chip")
+        chip_block = markup[chip_start:markup.index("\n  }", chip_start)]
+        self.assertIn("min-height: 44px", chip_block)
+
+    def test_tab_trap_serves_whichever_overlay_is_open(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        # One shared resolver picks the open overlay; the Tab trap uses it, so the
+        # dice drawer gets the same containment the sheet already has.
+        self.assertIn("function _openOverlayEl", markup)
+        trap_start = markup.index("const trapRoot")
+        trap_block = markup[trap_start:markup.index("\n});", trap_start)]
+        self.assertIn("_openOverlayEl()", trap_block)
+        self.assertIn("trapRoot.querySelectorAll", trap_block)
+        # The trap cycles both directions (existing sheet behavior, now shared).
+        self.assertIn("event.shiftKey", trap_block)
+
+    def test_overlays_mark_base_console_inert_and_restore_it(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        helper_start = markup.index("function _setConsoleInert")
+        helper_block = markup[helper_start:markup.index("\n}", helper_start)]
+        self.assertIn("setAttribute('inert'", helper_block)
+        self.assertIn("removeAttribute('inert'", helper_block)
+        self.assertIn("aria-hidden", helper_block)
+        for fn, end in (("function openCharacterSheet", "\n}"),
+                        ("function closePlayerSheet", "\n}"),
+                        ("function openDiceDrawer", "\n  }"),
+                        ("function closeDiceDrawer", "\n  }")):
+            start = markup.index(fn)
+            body = markup[start:markup.index(end, start)]
+            expected = "_setConsoleInert(true)" if "open" in fn else "_setConsoleInert(false)"
+            self.assertIn(expected, body, fn)
+        # Close paths must lift inert BEFORE restoring focus into the console.
+        close_start = markup.index("function closeDiceDrawer")
+        close_body = markup[close_start:markup.index("\n  }", close_start)]
+        self.assertLess(close_body.index("_setConsoleInert(false)"), close_body.index("invoker.focus()"))
+
+    def test_pending_snapshot_no_match_branch_has_no_dead_reset(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+        start = markup.index("function _onDicePendingSnapshot")
+        body = markup[start:markup.index("\n  }", start)]
+        guard = body.index("if (_locked && !_activeRequestId)")
+        between = body[guard:body.index("_setLocked(false)", guard)]
+        # The guard already requires _activeRequestId falsy; re-clearing it is dead code.
+        self.assertNotIn("_activeRequestId = ''", between)
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()

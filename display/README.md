@@ -200,6 +200,23 @@ Enable autorun:
 /gm autorun on
 ```
 
+### Phone player console (`?view=input&char=<Name>`)
+
+The phone view is one persistent screen — no Move/Roll/Sheet tabs, no character tabs:
+
+- **Party roster chips** across the top — tap any member to open their full markdown
+  character sheet as a slide-over overlay; closing it returns to the same screen with
+  any typed draft preserved.
+- **Message dock** — the action textarea plus the whole-party staged queue, always
+  visible. Attribution is server-enforced: a bound player's staged actions are always
+  recorded under their own character, regardless of the name in the request.
+- **Dice** — the dice FAB opens a bottom-sheet drawer for free rolls (die, advantage,
+  modifier, label). The LLM GM requests rolls through the existing CLI —
+  `python3 scripts/dice_player.py d20+5 --player Kara --label "Stealth" --dc 15` or
+  `display/send.py --dice-request` — and a request never hijacks the screen: a
+  dismissible badge appears above the dock, tapping it opens the drawer locked to the
+  requested roll, and resolving the roll releases the GM's blocking wait.
+
 **Player Settings (phone):** each device has a Settings view with a **Text Size** stepper (per-browser font scaling, anti-FOUC), a **Narration** length slider (250–2500 words → `POST /narration-pref`, surfaced to the GM as a `[[Narration length…]]` directive), and — when the device is bound to a PC — a **Rolls** toggle that flips that character between players-roll and GM-auto-roll (`POST /roll-pref`, surfaced as a `[[<Char> roll mode: …]]` directive). See SKILL.md → Dice convention for how those directives are honoured at the table.
 
 ### GM Help button

@@ -14,6 +14,10 @@ in front of the display companion.
   session cookie that binds that browser to that character for the rest of the session.
 - **No shared secrets with players.** Players never see or need `X-GM-Secret`; only the GM
   console (local, loopback) and GM CLI scripts use it.
+- **One-screen phone console.** A joined player lands on a single persistent screen:
+  party roster (tap a member for their full sheet as a slide-over), the whole-party
+  message dock, and a dice FAB for free rolls. GM roll requests sent with
+  `scripts/dice_player.py` raise a dismissible badge instead of hijacking the screen.
 
 LAN mode (`bash display/start-display.sh --lan` / `--lan --tls`, documented in the main
 [README](../README.md#display-companion)) is **legacy** under this setup (spec §5) — it's

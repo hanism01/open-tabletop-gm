@@ -3,6 +3,12 @@
 **Goal:** one screen per remote player holding all features — no tab-hopping. New
 features live on the **right side** and must not overlap existing controls.
 
+> **Status 2026-07:** items 1–3 shipped as the one-screen console (`body.input-only`
+> roster + sheet slide-over + message dock + dice drawer). The "Current UI reality"
+> below describes the pre-console tab layout and is retained as historical context.
+> Item 3's "own messages only" ask was superseded by the approved spec, which keeps
+> the whole-party queue visible (attribution stays server-enforced).
+
 **Current UI reality** (UX/UI SME pass over `display/templates/index.html`): there is
 **no CSS grid** — everything is `position:fixed` overlays. The phone view
 (`body.input-only`) is a **vertical single-column stack** with a top 3-tab bar
