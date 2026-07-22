@@ -1567,6 +1567,19 @@
     padding: 0 14px 14px;
     display: flex; flex-direction: column; gap: 9px;
   }
+  /* Keep the new player-console wrapper layout-neutral for the GM display. */
+  #player-console {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  #message-dock {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  #player-roster,
+  #dice-fab { display: none; }
   #input-panel.collapsed #input-body { display: none; }
   #char-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
   .char-tab {
@@ -1991,7 +2004,10 @@
     min-height: 100%;
     flex-direction: column;
   }
-  body.input-only #player-roster { flex: 0 0 auto; }
+  body.input-only #player-roster {
+    display: block;
+    flex: 0 0 auto;
+  }
   body.input-only #message-dock {
     display: flex;
     flex: 1 1 auto;
@@ -2015,6 +2031,7 @@
     font-size: 16px;
   }
   body.input-only #dice-fab {
+    display: block;
     align-self: flex-end;
     margin: 0 12px 12px;
     min-height: 44px;
@@ -2992,7 +3009,7 @@
           <button id="stage-btn">Stage</button>
         </div>
       </section>
-      <button id="dice-fab" type="button" aria-controls="dice-drawer" aria-label="Open dice">Dice</button>
+      <button id="dice-fab" type="button" aria-label="Open dice">Dice</button>
     </section>
     <!-- Phone-only dice pad (shown by ?view=input) -->
     <div id="dice-pad">

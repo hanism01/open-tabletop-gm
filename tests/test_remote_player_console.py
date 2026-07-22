@@ -39,6 +39,20 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn('id="player-input-text"', dock_markup)
         self.assertIn('id="staged-queue"', dock_markup)
 
+    def test_player_console_preserves_desktop_input_layout_and_has_no_missing_drawer_reference(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+
+        self.assertRegex(
+            markup,
+            r"#player-console\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*gap:\s*9px;",
+        )
+        self.assertRegex(
+            markup,
+            r"#message-dock\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*gap:\s*9px;",
+        )
+        self.assertRegex(markup, r"#player-roster,\s*#dice-fab\s*\{\s*display:\s*none;")
+        self.assertNotIn('aria-controls="dice-drawer"', markup)
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()
