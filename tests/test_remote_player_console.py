@@ -26,6 +26,19 @@ def _import_app():
 
 
 class RemotePlayerConsoleContracts(unittest.TestCase):
+    def test_player_console_has_persistent_base_screen_regions(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+
+        for element_id in ("player-console", "player-roster", "message-dock", "dice-fab"):
+            self.assertIn(f'id="{element_id}"', markup)
+        self.assertNotIn('id="dp-tabs"', markup)
+
+        dock_start = markup.index('id="message-dock"')
+        fab_start = markup.index('id="dice-fab"')
+        dock_markup = markup[dock_start:fab_start]
+        self.assertIn('id="player-input-text"', dock_markup)
+        self.assertIn('id="staged-queue"', dock_markup)
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()

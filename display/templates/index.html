@@ -1981,56 +1981,24 @@
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
   }
-  /* Hide the legacy "Party Input ▲" panel header in input-only mode — the tabs
-     are now the top navigation, so the old toggle no longer serves a purpose. */
+  /* Hide the legacy "Party Input ▲" panel header in input-only mode. */
   body.input-only #input-panel-header { display: none !important; }
 
-  /* Tab bar — only shown in input-only mode, hidden on the TV view. */
-  #dp-tabs { display: none; }
-  body.input-only #dp-tabs {
-    display: flex !important;
-    flex: 0 0 auto;
-    gap: 0;
-    border-bottom: 1px solid rgba(180,140,60,0.25);
-    background: rgba(0,0,0,0.4);
+  /* Persistent player console: roster, actions, and an inert dice affordance. */
+  body.input-only #player-console {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 100%;
+    flex-direction: column;
   }
-  body.input-only .dp-tab {
-    flex: 1 1 0;
-    background: transparent;
-    color: #b8a26a;
-    border: none;
-    border-bottom: 2px solid transparent;
-    font: 700 16px/1 ui-monospace, monospace;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 16px 8px;
-    min-height: 48px;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  body.input-only #player-roster { flex: 0 0 auto; }
+  body.input-only #message-dock {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
   }
-  body.input-only .dp-tab.active {
-    color: #f4e2a8;
-    border-bottom-color: rgba(220,180,90,0.85);
-    background: rgba(180,140,60,0.08);
-  }
-  body.input-only .dp-tab:active { background: rgba(180,140,60,0.18); }
-
-  /* Section visibility: only the section whose data-tab-section matches
-     #input-body[data-active-tab] is shown. Every other tagged section is
-     hidden. Untagged children stay visible (none currently). */
-  body.input-only #input-body[data-active-tab="move"]      [data-tab-section="roll"],
-  body.input-only #input-body[data-active-tab="move"]      [data-tab-section="character"],
-  body.input-only #input-body[data-active-tab="roll"]      [data-tab-section="move"],
-  body.input-only #input-body[data-active-tab="roll"]      [data-tab-section="character"],
-  body.input-only #input-body[data-active-tab="character"] [data-tab-section="move"],
-  body.input-only #input-body[data-active-tab="character"] [data-tab-section="roll"] {
-    display: none !important;
-  }
-
-  /* Move tab: let the action textarea actually use the screen. */
-  body.input-only #input-body[data-active-tab="move"] #player-input-text {
+  body.input-only #char-tabs { display: none; }
+  body.input-only #player-input-text {
     flex: 1 1 auto;
     min-height: 160px;
     font-size: 16px !important;
@@ -2038,105 +2006,26 @@
     margin: 10px 12px;
     border-radius: 10px;
   }
-  body.input-only #input-body[data-active-tab="move"] #input-footer {
+  body.input-only #input-footer {
     padding: 0 12px 12px;
   }
-  body.input-only #input-body[data-active-tab="move"] #stage-btn {
+  body.input-only #stage-btn {
     min-height: 48px;
     padding: 14px 18px;
     font-size: 16px;
   }
-  /* Character pane — phone-side read-only sheet viewer. */
-  #character-pane { display: none; }
-  body.input-only #character-pane {
-    display: flex !important;
-    flex-direction: column;
-    flex: 1 1 auto;
-    padding: 12px 14px 24px;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    color: #d8c694;
-    font: 400 14px/1.5 ui-monospace, monospace;
-  }
-  body.input-only #cp-status {
-    color: rgba(180,140,60,0.5);
-    font-style: italic;
-    text-align: center;
-    padding: 8px 0;
-  }
-  body.input-only #cp-body { width: 100%; }
-  body.input-only #cp-body h1 {
+  body.input-only #dice-fab {
+    align-self: flex-end;
+    margin: 0 12px 12px;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid rgba(220,180,90,0.55);
+    border-radius: 22px;
+    background: rgba(30,20,8,0.9);
     color: #f4e2a8;
-    font: 800 22px/1.2 ui-monospace, monospace;
-    margin: 0 0 6px;
-    border-bottom: 1px solid rgba(180,140,60,0.35);
-    padding-bottom: 6px;
-  }
-  body.input-only #cp-body h2 {
-    color: #ffd98a;
-    font: 700 17px/1.3 ui-monospace, monospace;
-    margin: 20px 0 6px;
-    letter-spacing: 0.04em;
+    font: 700 13px/1 ui-monospace, monospace;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-  }
-  body.input-only #cp-body h3 {
-    color: #d8c694;
-    font: 700 15px/1.3 ui-monospace, monospace;
-    margin: 14px 0 4px;
-  }
-  body.input-only #cp-body p {
-    margin: 4px 0 10px;
-    color: #c2b48a;
-  }
-  body.input-only #cp-body strong { color: #f4e2a8; font-weight: 700; }
-  body.input-only #cp-body em     { color: #b8a26a; font-style: italic; }
-  body.input-only #cp-body ul {
-    list-style: none;
-    padding-left: 0;
-    margin: 4px 0 10px;
-  }
-  body.input-only #cp-body li {
-    padding: 3px 0 3px 14px;
-    position: relative;
-  }
-  body.input-only #cp-body li::before {
-    content: '•';
-    color: rgba(180,140,60,0.7);
-    position: absolute;
-    left: 2px;
-    top: 3px;
-  }
-  body.input-only #cp-body table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 6px 0 14px;
-    font-size: 13px;
-  }
-  body.input-only #cp-body th,
-  body.input-only #cp-body td {
-    border: 1px solid rgba(180,140,60,0.25);
-    padding: 6px 8px;
-    text-align: left;
-    color: #c2b48a;
-  }
-  body.input-only #cp-body th {
-    background: rgba(180,140,60,0.12);
-    color: #f4e2a8;
-    font-weight: 700;
-  }
-  body.input-only #cp-body tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
-
-  /* Notification dot on the Roll tab when an unresolved DM request targets us. */
-  body.input-only .dp-tab.has-request::after {
-    content: '';
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    margin-left: 8px;
-    border-radius: 50%;
-    background: #ffd98a;
-    box-shadow: 0 0 8px rgba(255,220,140,0.8);
-    vertical-align: middle;
   }
   /* iOS: prevent auto-zoom on focus by ensuring inputs are ≥16px */
   body.input-only #player-input-text,
@@ -2147,14 +2036,7 @@
 
   /* ── Phone dice pad (visible only in input-only view) ────────────────── */
   #dice-pad { display: none; }
-  body.input-only #dice-pad {
-    display: flex !important;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px 16px;
-    border-top: 1px solid rgba(180,140,60,0.18);
-    background: rgba(0,0,0,0.35);
-  }
+  body.input-only #dice-pad { display: none !important; }
   #dice-pad .dp-row {
     display: flex;
     gap: 6px;
@@ -3095,29 +2977,25 @@
     </div>
     <span id="input-toggle-arrow">▲</span>
   </div>
-  <div id="input-body" data-active-tab="move">
-    <!-- Phone-only tab bar (shown by ?view=input). Top-level switcher between
-         the action input (Move) and the dice pad (Roll). The same DOM children
-         exist for the TV view too — tab data-attributes only take effect in
-         input-only mode. -->
-    <div id="dp-tabs">
-      <button class="dp-tab active" data-tab="move" type="button">Move</button>
-      <button class="dp-tab"        data-tab="roll" type="button">Roll</button>
-      <button class="dp-tab"        data-tab="character" type="button">Sheet</button>
-    </div>
-    <div id="staged-queue" data-tab-section="move"></div>
-    <div id="waiting-indicator" data-tab-section="move"></div>
-    <div id="char-tabs" data-tab-section="move">
-      <button class="char-tab active" data-char="Everybody">Everybody</button>
-    </div>
-    <textarea id="player-input-text" rows="2" placeholder="Enter action or dialogue…" maxlength="500"
-              data-tab-section="move"></textarea>
-    <div id="input-footer" data-tab-section="move">
-      <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
-      <button id="stage-btn">Stage</button>
-    </div>
+  <div id="input-body">
+    <section id="player-console" aria-label="Player console">
+      <div id="player-roster" role="list" aria-label="Party roster"></div>
+      <section id="message-dock" aria-label="Party actions">
+        <div id="staged-queue"></div>
+        <div id="waiting-indicator"></div>
+        <div id="char-tabs">
+          <button class="char-tab active" data-char="Everybody">Everybody</button>
+        </div>
+        <textarea id="player-input-text" rows="2" placeholder="Enter action or dialogue…" maxlength="500"></textarea>
+        <div id="input-footer">
+          <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
+          <button id="stage-btn">Stage</button>
+        </div>
+      </section>
+      <button id="dice-fab" type="button" aria-controls="dice-drawer" aria-label="Open dice">Dice</button>
+    </section>
     <!-- Phone-only dice pad (shown by ?view=input) -->
-    <div id="dice-pad" data-tab-section="roll">
+    <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
       <div class="dp-row">
         <input id="dp-name" type="text" maxlength="24" placeholder="Name"
@@ -3154,11 +3032,6 @@
       <div class="dp-row">
         <button id="dp-roll">Roll</button>
       </div>
-    </div>
-    <!-- Phone-only character sheet pane (Sheet tab) -->
-    <div id="character-pane" data-tab-section="character">
-      <div id="cp-status">Loading…</div>
-      <div id="cp-body"></div>
     </div>
   </div>
 </div>
@@ -6845,7 +6718,7 @@ connect();
 //                              so players only need to type the short URL
 //                              (e.g. http://<host>:5001/?char=Mira).
 // Both forms set the character binding the same way (the binding is read
-// from ?character= or ?char= inside _initDicePad / _loadCharacterSheet).
+// from ?character= or ?char= inside _initDicePad).
 {
   const _qp = new URLSearchParams(location.search);
   const _inputMode = _qp.get('view') === 'input' || _qp.has('char') || _qp.has('character');
@@ -6853,8 +6726,6 @@ connect();
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
-    _initInputTabs();
-    _initDicePad();
   }
   _initModeSwitcher(_inputMode);
 }
@@ -6965,35 +6836,7 @@ function _initModeSwitcher(inputMode) {
   document.body.appendChild(menu);
 }
 
-// ── Move / Roll tab switcher (input-only mode only) ──────────────────────
-function _initInputTabs() {
-  const body = document.getElementById('input-body');
-  if (!body) return;
-  document.querySelectorAll('.dp-tab').forEach(btn => {
-    btn.addEventListener('click', () => _setActiveTab(btn.dataset.tab));
-  });
-}
-
-function _setActiveTab(tab) {
-  if (tab !== 'move' && tab !== 'roll' && tab !== 'character') return;
-  const body = document.getElementById('input-body');
-  if (!body) return;
-  body.dataset.activeTab = tab;
-  document.querySelectorAll('.dp-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.tab === tab);
-  });
-  // Clear the "DM request waiting" dot once the player navigates to Roll.
-  if (tab === 'roll') {
-    const rollTab = document.querySelector('.dp-tab[data-tab="roll"]');
-    if (rollTab) rollTab.classList.remove('has-request');
-  }
-  // Lazy-load the character sheet the first time Sheet is opened, and refresh
-  // each subsequent open so HP / slots / conditions stay current with the
-  // campaign file (which the DM updates between turns).
-  if (tab === 'character') _loadCharacterSheet();
-}
-
-// ── Character sheet pane (Sheet tab) ─────────────────────────────────────
+// ── Character sheet rendering helper ─────────────────────────────────────
 async function _loadCharacterSheet() {
   const status = document.getElementById('cp-status');
   const bodyEl = document.getElementById('cp-body');
@@ -7378,15 +7221,6 @@ function _initDicePad() {
     // Lock everything except the prescribed die + adv button + Roll.
     _setLocked(true, reqSpec, (req.advantage || 'normal'));
 
-    // Pull the player to the Roll tab so they don't miss the request. If they
-    // were already on Roll, this is a no-op; if they were on Move, the tab
-    // switches and the dot on the Roll button is cleared by _setActiveTab.
-    const onMove = document.getElementById('input-body')?.dataset.activeTab === 'move';
-    if (onMove) {
-      const rollTab = document.querySelector('.dp-tab[data-tab="roll"]');
-      if (rollTab) rollTab.classList.add('has-request');
-      _setActiveTab('roll');
-    }
   }
   window._onDiceRequest = _applyDiceRequest;
 
