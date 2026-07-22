@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
@@ -161,13 +162,17 @@ def _slugify(name: str) -> str:
 def normalize_document(
     raw_text: str, source_path: str, category: str
 ) -> dict[str, object] | None:
-    """Extract the stable, searchable fields from one Foundry YAML document."""
+    """Extract searchable fields, raising ValueError for malformed documents."""
     try:
-        document = yaml.safe_load(raw_text)
-    except yaml.YAMLError:
-        return None
+        document = (
+            json.loads(raw_text)
+            if source_path.lower().endswith(".json")
+            else yaml.safe_load(raw_text)
+        )
+    except (json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise ValueError("invalid YAML or JSON") from exc
     if not isinstance(document, Mapping):
-        return None
+        raise ValueError("document must be a mapping")
 
     name = document.get("name")
     if not isinstance(name, str) or not name.strip():

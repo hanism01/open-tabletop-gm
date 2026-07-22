@@ -91,10 +91,16 @@ system:
     def test_decodes_html_entities_exactly_once(self):
         self.assertEqual(strip_foundry_markup("&amp;lt;b&amp;gt;"), "&lt;b&gt;")
 
-    def test_rejects_nameless_and_non_mapping_yaml(self):
+    def test_returns_none_only_for_nameless_documents(self):
         self.assertIsNone(normalize_document("type: action", "packs/pf2e/actions/nope.yaml", "actions"))
-        self.assertIsNone(normalize_document("- name: Not a document", "packs/pf2e/actions/nope.yaml", "actions"))
-        self.assertIsNone(normalize_document("name: [", "packs/pf2e/actions/nope.yaml", "actions"))
+
+    def test_rejects_non_mapping_and_unparseable_documents(self):
+        with self.assertRaises(ValueError):
+            normalize_document("- name: Not a document", "packs/pf2e/actions/nope.yaml", "actions")
+        with self.assertRaises(ValueError):
+            normalize_document("name: [", "packs/pf2e/actions/nope.yaml", "actions")
+        with self.assertRaises(ValueError):
+            normalize_document("name: valid-yaml-but-not-json", "packs/pf2e/actions/nope.json", "actions")
 
     def test_normalizes_malformed_values_to_json_safe_shapes(self):
         raw = """name: Strange Data
