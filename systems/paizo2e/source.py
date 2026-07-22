@@ -20,9 +20,20 @@ GITHUB_CODELOAD = "https://codeload.github.com"
 USER_AGENT = "ttrpg-skill-foundry-source/1.0"
 HTTP_TIMEOUT_SECONDS = 30
 # These limits keep a corrupted or unexpectedly large upstream archive bounded.
-MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
-MAX_MEMBER_BYTES = 5 * 1024 * 1024
-MAX_SELECTED_BYTES = 50 * 1024 * 1024
+_MEBIBYTE = 1024 * 1024
+MAX_ARCHIVE_BYTES = 256 * _MEBIBYTE
+MAX_MEMBER_BYTES = 16 * _MEBIBYTE
+MAX_SELECTED_BYTES = 160 * _MEBIBYTE
+
+# Conservative high-water marks observed for the v14-dev source archive and its
+# selected pack roots. Keep these explicit so future source growth is reviewed
+# before it reaches a production cap.
+CURRENT_EXPECTED_ARCHIVE_BYTES = 192 * _MEBIBYTE
+CURRENT_EXPECTED_MEMBER_BYTES = 4 * _MEBIBYTE
+CURRENT_EXPECTED_SELECTED_BYTES = {
+    "packs/pf2e": 128 * _MEBIBYTE,
+    "packs/sf2e": 32 * _MEBIBYTE,
+}
 
 
 @dataclass(frozen=True)

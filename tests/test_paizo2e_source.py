@@ -223,6 +223,29 @@ class SourceContractTests(unittest.TestCase):
                 source.source_archive(SourceSpec("pf2e", "packs/pf2e"), "sha")
         response.read.assert_not_called()
 
+    def test_source_archive_caps_stream_without_content_length(self):
+        response = MagicMock()
+        response.headers = {}
+        response.read.return_value = b"12345"
+        response.__enter__.return_value = response
+        with (
+            patch.object(source, "MAX_ARCHIVE_BYTES", 4),
+            patch.object(source, "urlopen", return_value=response),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exceeds"):
+                source.source_archive(SourceSpec("pf2e", "packs/pf2e"), "sha")
+        response.read.assert_called_once_with(5)
+
+    def test_current_source_size_expectations_fit_bounded_limits(self):
+        self.assertLess(source.CURRENT_EXPECTED_ARCHIVE_BYTES, source.MAX_ARCHIVE_BYTES)
+        self.assertLess(source.CURRENT_EXPECTED_MEMBER_BYTES, source.MAX_MEMBER_BYTES)
+        for pack_root in ("packs/pf2e", "packs/sf2e"):
+            with self.subTest(pack_root=pack_root):
+                self.assertLess(
+                    source.CURRENT_EXPECTED_SELECTED_BYTES[pack_root],
+                    source.MAX_SELECTED_BYTES,
+                )
+
     def test_source_spec_uses_the_split_v14_foundry_pack_roots(self):
         pf2e = SourceSpec("pf2e", "packs/pf2e")
         sf2e = SourceSpec("sf2e", "packs/sf2e")
