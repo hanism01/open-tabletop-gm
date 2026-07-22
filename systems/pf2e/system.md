@@ -77,7 +77,7 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 **Resource name:** Hero Points
 
-**Range:** 0–3. At the start of a session each PC normally has 1 Hero Point. Award another for heroic, clever, or character-defining play; a PC cannot hold more than 3.
+**Range:** 0–3. At the start of a session each PC normally has 1 Hero Point. Award another for heroic, clever, or character-defining play; a PC cannot hold more than 3. Unspent Hero Points expire at the end of the session.
 
 **Tracking:** Spend 1 Hero Point to reroll a check and use the new result. Use **Heroic Recovery** by spending all remaining Hero Points (minimum 1) when you would gain dying or your dying value would increase; you avoid death and become stabilized at 0 HP. Track class resources—Focus Points, spell slots, reagents, and similar pools—separately on the character sheet.
 
@@ -123,7 +123,7 @@ Whenever a creature loses the dying condition, it gains **wounded 1**, or increa
 
 ## Status Effects / Conditions
 
-Use `tracker.py condition add <name> <condition>` for active conditions and `tracker.py effect add` for timed effects. Include the condition value where one matters.
+Use `tracker.py condition add <name> <condition>` for active conditions. For a timed effect, use the exact tracker syntax `python3 scripts/tracker.py -c "$CAMPAIGN" effect start "$ENTITY" "<effect name>" <duration>` (for example, duration `3r`, `10m`, `8h`, or `indef`). Include the condition value where one matters.
 
 | Condition | Severity | Effect summary |
 |---|---|---|

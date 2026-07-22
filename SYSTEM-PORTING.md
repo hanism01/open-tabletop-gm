@@ -72,9 +72,9 @@ Every game has character statistics but they vary significantly:
 
 List your stats in `system.md`. If there's no modifier conversion (stat IS the modifier), say so.
 
-### 3. The primary resource (spell slots → your system)
+### 3. The primary resource and UI widgets
 
-The display sidebar shows "spell slots" as pips that drain and refill. This UI works for any limited resource — the label is cosmetic. What you're actually tracking is *a pool of limited-use abilities that characters spend during play*.
+Declare the system's resource in `system.md`, then select a widget in `systems/<system>/ui.json` that matches its shape. The renderer is declarative: a single pool uses a `bar` with `{current,max}`, a level-banded resource uses `pip_levels`, and a small capped count can use `badge_set` or `badge`. The label is system-defined, not a hardcoded spell-slot label.
 
 | System | Resource |
 |--------|----------|
@@ -83,7 +83,7 @@ The display sidebar shows "spell slots" as pips that drain and refill. This UI w
 | Cyberpunk RED | Luck (points spent on rolls, restored at start of session) |
 | Wrath & Glory | Glory / Wrath (variable; Wrath accumulates danger) |
 
-Describe your resource in `system.md` and map it to what the display tracks. If your resource doesn't map cleanly to slots, note how you want it displayed and we can adjust the push_stats calls accordingly.
+Describe the resource's spend and refresh rules in `system.md`, and use the matching manifest widget and pushed data shape from `systems/UI-MANIFEST.md`.
 
 ### 4. Health and damage
 
@@ -100,21 +100,7 @@ The display tracks `current / max` HP plus optional temp HP. For systems with mu
 
 ### 5. Conditions / status effects
 
-`tracker.py` has a colour-coded condition list hardcoded for D&D. To use it with your system, update the `CONDITION_COLOURS` dictionary near the top of `scripts/tracker.py`:
-
-```python
-CONDITION_COLOURS = {
-    "unconscious":  "danger",   # red
-    "stunned":      "danger",
-    "frightened":   "warn",     # amber
-    "poisoned":     "warn",
-    "grappled":     "info",     # blue
-    "prone":        "info",
-    "invisible":    "buff",     # green
-}
-```
-
-Replace these with your system's status effects. The four severity levels are `danger`, `warn`, `info`, `buff`. You don't need to use all four — use whichever make sense.
+Colour conditions in the system's `ui.json`, not in `tracker.py`. Add `class_map` to its `tag_list` widget, mapping each condition name to `danger`, `warn`, `info`, or `buff`. The renderer matches case-insensitively, uses exact names first, and lets valued conditions such as `dying 2` inherit the longest matching base name. See `systems/UI-MANIFEST.md` for the widget shape.
 
 ### 6. Recovery / rests
 
@@ -161,8 +147,8 @@ Work through each section of the template. The minimum viable system module has:
 
 You don't need to fill in everything before starting to play. Start with dice and health, play a session, note what the GM gets wrong, then fill in the gaps.
 
-### Step 3 — Update tracker.py conditions (optional)
-If your system has a specific set of named conditions and you want them colour-coded in the display, update `CONDITION_COLOURS` in `scripts/tracker.py` as shown above.
+### Step 3 — Add a UI manifest (optional)
+Create `systems/<your-system>/ui.json` to choose the sidebar widgets, combat strip, stat grid, and condition `class_map`. See `systems/UI-MANIFEST.md`; the renderer falls back safely when a manifest is absent.
 
 ### Step 4 — Create a campaign
 Run `/gm new <campaign-name>` and specify your system when prompted. The skill will load your `system.md` alongside `SKILL.md` for every session.

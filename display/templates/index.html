@@ -4605,7 +4605,7 @@ function _wStatLines(card, p, w) {
     if (ln.format === 'hd') {
       if (v) out.push(`${ln.label} <span class="val">${v.remaining ?? '?'}/${v.max ?? '?'} ${v.die || ''}</span>`);
     } else if (v != null) {
-      out.push(`${ln.label} <span class="val">${v}</span>`);
+      out.push(`${ln.label} <span class="val">${v}${ln.suffix || ''}</span>`);
     }
   });
   if (!out.length) return;
@@ -4623,10 +4623,15 @@ function _wTagList(card, p, w) {
   el.dataset.role = w.role || 'conditions';   // always appended (placeholder lets merges clear it)
   items.forEach(c => {
     const condition = String(c).trim().toLowerCase();
+    const mappings = Object.entries(map).map(([key, value]) => [key.toLowerCase(), value]);
     // Conditions with values (for example, "dying 2" or "frightened 1")
-    // inherit the manifest class for their named base condition.
-    const baseCondition = Object.keys(map).find(key => condition.startsWith(key + ' '));
-    const className = map[condition] || (baseCondition && map[baseCondition]) || 'info';
+    // inherit the manifest class for their named base condition. Exact matches
+    // win; otherwise select the longest matching prefix.
+    const exact = mappings.find(([key]) => key === condition);
+    const prefix = mappings
+      .filter(([key]) => condition.startsWith(key + ' '))
+      .sort(([left], [right]) => right.length - left.length)[0];
+    const className = (exact && exact[1]) || (prefix && prefix[1]) || 'info';
     const pill = document.createElement('span');
     pill.className = `sb-condition-pill ${className}`;
     pill.textContent = c;

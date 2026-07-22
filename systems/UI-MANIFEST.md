@@ -71,7 +71,7 @@ carries (see `display/push_stats.py`).
 |--------|---------|------------------|-------------|
 | `bar` | Labelled value + fill bar | `{current, max, temp?}` | `cur`,`max` (field names), `color:"hp"` for HP's dynamic colour, `temp`, `icon`, `fill_class`, `require_cur` (only draw when current present) |
 | `stat_lines` | Inline `Label value` lines | each line binds a scalar | `lines:[{label,bind,format?}]`; `format:"hd"` reads `{remaining,max,die}` |
-| `tag_list` | List of tags | `[ "name", ... ]` | `class_map` (tag → severity class: `danger`/`warn`/`info`/`buff`) |
+| `tag_list` | List of tags | `[ "name", ... ]` | `class_map` (tag → severity class: `danger`/`warn`/`info`/`buff`; matching is case-insensitive, exact names win, then a value such as `dying 2` inherits the longest matching base name) |
 | `tag_single` | One tag, or hidden if empty | `string \| null` | `prefix` (e.g. `"◈ "`) |
 | `effects` | Timed-effect pills | `[ effect, ... ]` | — (uses the built-in effect-pill renderer) |
 | `badge_set` | Labelled count badges | `{ "<label>": count }` | — (the generic milestone map: Inspiration / Edge / Bennie / Fate Point all ride this) |
