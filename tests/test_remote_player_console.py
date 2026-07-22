@@ -52,6 +52,10 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         )
         self.assertRegex(markup, r"#player-roster,\s*#dice-fab\s*\{\s*display:\s*none;")
         self.assertNotIn('aria-controls="dice-drawer"', markup)
+        self.assertIn(
+            'id="dice-fab" type="button" disabled aria-label="Dice roller available when the drawer loads"',
+            markup,
+        )
 
     @classmethod
     def setUpClass(cls):
