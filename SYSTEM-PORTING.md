@@ -14,6 +14,10 @@ The skill is split into two layers:
 
 When you run `/gm load <campaign>`, the skill reads both files. Think of `SKILL.md` as the experienced GM who's played everything, and `system.md` as the rulebook they just read for your specific game.
 
+### System data lifecycle (optional)
+
+Rules data is an optional third layer. If a system ships a `lookup.py` command and a local dataset, use lookup during play for specific spells, actions, items, and conditions; do not invent a data dependency for systems that have none. A companion `sync_srd.py --check` command should be read-only: it reports whether the local dataset is stale. The explicit sync command may then fetch or rebuild data from its documented, license-compatible source. Keep generated data and its source/version metadata inside `systems/<system>/data/`, and keep `system.md` useful even when the dataset is absent.
+
 ---
 
 ## What's universal — no changes needed
