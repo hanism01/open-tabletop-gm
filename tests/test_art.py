@@ -37,6 +37,22 @@ class BuildSearchQueryTests(unittest.TestCase):
     def test_web_source_leaves_query_unrestricted(self):
         self.assertEqual(build_search_query("blackwater keep", source="web"), "blackwater keep")
 
+    def test_search_fetch_uses_the_eight_second_timeout(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *unused):
+                return False
+
+            def read(self):
+                return b""
+
+        with patch("scripts.art.urlopen", return_value=Response()) as open_request:
+            art.fetch_search_results("blackwater keep")
+
+        self.assertEqual(open_request.call_args.kwargs["timeout"], 8)
+
 
 class ArtCommandTests(unittest.TestCase):
     def setUp(self):

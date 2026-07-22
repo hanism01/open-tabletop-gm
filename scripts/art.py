@@ -410,7 +410,7 @@ def fetch_search_results(query: str) -> list[dict[str, str]]:
         headers={"User-Agent": "open-tabletop-gm-art/1.0"},
     )
     try:
-        with urlopen(request, timeout=10) as response:
+        with urlopen(request, timeout=8) as response:
             markup = response.read().decode("utf-8", errors="replace")
     except OSError as error:
         raise ArtValidationError("Art search request failed") from error

@@ -167,9 +167,12 @@ python3 <skill-base>/scripts/art.py delete --campaign <campaign> --id ID
 # Make a saved record the one active display image, or clear it.
 python3 <skill-base>/scripts/art.py show --campaign <campaign> --id ID
 python3 <skill-base>/scripts/art.py hide
+
+# Show unsaved scene art without creating or changing a campaign record.
+python3 <skill-base>/scripts/art.py show --url "https://…" --source-url "https://…" --title "Scene title"
 ```
 
-`show` and `hide` update the optional local display when it is running; the campaign workflow still works when it is offline. Use only original, human-created artwork: this workflow does not generate GenAI images and never automatically downloads, proxies, caches, or rehosts image files. It displays the original remote image and keeps its source link and creator metadata with the record.
+`show` and `hide` update the optional local display when it is running; the campaign workflow still works when it is offline. The URL-only `show` command displays unsaved scene art without persisting it. Use only original, human-created artwork: this workflow does not generate GenAI images and never automatically downloads, proxies, caches, or rehosts image files. It displays the original remote image and keeps its source link and creator metadata with the record.
 
 ---
 
