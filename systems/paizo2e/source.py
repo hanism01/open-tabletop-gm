@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import tempfile
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -44,13 +45,26 @@ def dataset_metadata(spec: SourceSpec, sha: str, counts: dict[str, int]) -> dict
 def write_dataset(path: str | Path, dataset: dict) -> None:
     """Atomically replace *path* with a compact JSON dataset."""
     destination = Path(path)
-    temporary = destination.with_name(f"{destination.name}.tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(dataset, handle, ensure_ascii=False, separators=(",", ":"))
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, destination)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            json.dump(dataset, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _github_json(path: str) -> dict:
@@ -82,7 +96,11 @@ def tree_at_sha(spec: SourceSpec, sha: str) -> list[dict]:
     payload = _github_json(
         f"/repos/{spec.repo}/git/trees/{encoded_sha}?recursive=1"
     )
-    try:
-        return payload["tree"]
-    except (KeyError, TypeError) as exc:
-        raise RuntimeError(f"GitHub tree response lacked a tree for {sha}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"GitHub tree response was invalid for {sha}")
+    if payload.get("truncated") is True:
+        raise RuntimeError(f"GitHub tree response was truncated for {sha}")
+    tree = payload.get("tree")
+    if not isinstance(tree, list):
+        raise RuntimeError(f"GitHub tree response lacked a tree list for {sha}")
+    return tree
