@@ -118,6 +118,14 @@ The Flask server scans each text chunk for keywords and derives a scene:
 
 Background gradient and particle type transition smoothly over ~2.5 seconds when the scene changes.
 
+### Campaign art
+
+The LLM GM selects campaign art with the `scripts/art.py` CLI; there is no browser-based GM art UI. Records live in the campaign's `art.json` and preserve the original source URL and creator metadata. Search uses DeviantArt by default; use the general web source only explicitly. The workflow does not use GenAI and never automatically downloads, proxies, caches, or rehosts image files.
+
+Only one selected image is active at a time. It appears as an inline, scrollable panel in the central narration column—not as a modal or overlay—and includes its title/category, credit caption, and an explicit **View source** link. New or reconnecting browsers receive the active art state again. If the remote image fails to load, the panel shows a fallback message while keeping the source link available.
+
+Each browser can locally hide the current panel, leaving a **Show scene art** chip; this choice is preserved for that art while the browser reconnects or re-renders it. It is not a shared hide action. On mobile, the panel remains in the normal document flow (not fixed) so it does not cover the composer. Desktop local pinning is not currently implemented.
+
 ### Dynamic sky canvas
 
 A canvas layer above the scene background renders a live sky driven by `world_time` data:

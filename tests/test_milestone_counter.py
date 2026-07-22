@@ -36,8 +36,8 @@ class MilestoneCounterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()
-        # Bypass token gate
-        cls.mod._token_ok = lambda: True
+        # Authenticate as GM for the fail-closed identity gate
+        cls.mod._GM_SECRET = "test-gm-secret"
         cls.client = cls.mod.app.test_client()
 
     def setUp(self):
@@ -48,7 +48,8 @@ class MilestoneCounterTests(unittest.TestCase):
 
     def _post(self, body):
         return self.client.post(
-            "/stats", data=json.dumps(body), content_type="application/json"
+            "/stats", data=json.dumps(body), content_type="application/json",
+            headers={"X-GM-Secret": "test-gm-secret"}
         )
 
     def _player(self, name="Aldric"):

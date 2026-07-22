@@ -32,7 +32,7 @@ _DIR         = pathlib.Path(__file__).parent
 _SCHEME_FILE = _DIR / ".scheme"
 _SCHEME      = _SCHEME_FILE.read_text().strip() if _SCHEME_FILE.exists() else "http"
 DRAIN_URL    = f"{_SCHEME}://localhost:5001/player-input/drain"
-TOKEN_FILE   = _DIR / ".token"
+TOKEN_FILE   = _DIR / ".gm_secret"
 QUEUE_FILE   = _DIR / ".input_queue"
 NARRATION_TARGET = _DIR / "narration_target"   # set by the display's Narration slider
 ROLL_PREFS       = _DIR / "roll_prefs.json"    # per-character roll overrides (Settings → Rolls)
@@ -88,7 +88,7 @@ try:
     token = TOKEN_FILE.read_text().strip() if TOKEN_FILE.exists() else ""
     req = urllib.request.Request(
         DRAIN_URL, method="POST",
-        headers={"X-Token": token, "Content-Length": "0"},
+        headers={"X-GM-Secret": token, "Content-Length": "0"},
     )
     with urllib.request.urlopen(req, context=_SSL_CTX, timeout=2) as resp:
         entries = json.loads(resp.read())

@@ -58,7 +58,7 @@ QUEUE_FILE     = str(_DIR / ".input_queue")
 STATS_FILE     = str(_DIR / "stats.json")
 CAMP_FILE      = str(_DIR / ".campaign")
 AUDIT_LOG      = str(_DIR / "input_log.json")
-TOKEN_FILE     = str(_DIR / ".token")
+TOKEN_FILE     = str(_DIR / ".gm_secret")
 DISPLAY_URL    = "https://127.0.0.1:5001"
 
 # Self-signed cert — skip verification for localhost
@@ -85,7 +85,7 @@ def _notify_consumed() -> None:
             f"{DISPLAY_URL}/queue/consumed",
             data=b"",
             method="POST",
-            headers={"X-DND-Token": token},
+            headers={"X-GM-Secret": token},
         )
         urllib.request.urlopen(req, timeout=1, context=_SSL_CTX)
     except Exception:

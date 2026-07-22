@@ -8,6 +8,7 @@ Endpoints:
     GET  /                   → serves index.html
     POST /chunk              → receives text chunk from wrapper.py
     POST /stats              → receives character/combat stat updates (merged, persisted)
+    POST /art                → show or hide GM-selected campaign art
     GET  /stream             → SSE stream to browser (text + scene + stats events)
     GET  /ping               → health check
     POST /clear              → wipe text log and broadcast clear event
@@ -21,6 +22,7 @@ Endpoints:
 """
 
 import hmac
+import ipaddress
 import json
 import pathlib
 import os
@@ -32,7 +34,8 @@ import sys
 import threading
 from collections import deque
 from typing import Optional
-from flask import Flask, Response, request, render_template, jsonify
+from urllib.parse import urlsplit, urlunsplit
+from flask import Flask, Response, request, render_template, jsonify, g, redirect
 from flask_cors import CORS
 
 _DISPLAY_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -40,6 +43,23 @@ _SKILL_DIR    = os.path.dirname(_DISPLAY_DIR)
 SCRIPTS_DIR   = os.path.join(_SKILL_DIR, "scripts")
 LOG_FILE      = os.path.join(_DISPLAY_DIR, "text_log.json")
 _LOG_FALLBACK = LOG_FILE
+
+# ── Remote-play identity (Slice 0) ───────────────────────────────────────────
+# NB: _DISPLAY_DIR is a plain str — wrap it once. tokens.py lives beside this
+# file, so ensure _DISPLAY_DIR is importable before importing it.
+_IDENTITY_DIR = pathlib.Path(_DISPLAY_DIR)
+if str(_IDENTITY_DIR) not in sys.path:
+    sys.path.insert(0, str(_IDENTITY_DIR))
+import tokens  # noqa: E402
+_INVITE_SECRET = tokens.ensure_secret(_IDENTITY_DIR / ".invite_secret")
+_GM_SECRET = tokens.ensure_secret(_IDENTITY_DIR / ".gm_secret")
+_REVOCATION = tokens.RevocationStore(_IDENTITY_DIR / ".revoked.json")
+
+_JOIN_DENIED_HTML = (
+    "<!doctype html><html><body style='font-family:sans-serif;text-align:center;"
+    "padding-top:4em'><h2>This join link is not valid</h2>"
+    "<p>It may have expired or already been used — ask your GM for a new link.</p>"
+    "</body></html>")
 
 # SRD lookup module — degrades silently if dataset not built
 if SCRIPTS_DIR not in sys.path:
@@ -107,7 +127,6 @@ def _apply_campaign_sfx_languages() -> None:
 HELP_LOCK     = os.path.join(_DISPLAY_DIR, ".help-lock")
 CAMP_FILE     = os.path.join(_DISPLAY_DIR, ".campaign")
 STATS_FILE    = os.path.join(_DISPLAY_DIR, "stats.json")
-TOKEN_FILE    = os.path.join(_DISPLAY_DIR, ".token")
 INPUT_FILE    = os.path.join(_DISPLAY_DIR, "player_input.json")
 TRIGGER_FILE  = os.path.join(_DISPLAY_DIR, ".input_trigger")
 QUEUE_FILE    = os.path.join(_DISPLAY_DIR, ".input_queue")
@@ -129,24 +148,6 @@ if _TLS_MODE:
     sys.argv.remove("--tls")
 
 
-def _get_or_create_token() -> str:
-    """Load or generate the LAN token. Upgrades short legacy tokens to 64-char."""
-    try:
-        token = open(TOKEN_FILE).read().strip()
-        if len(token) >= 48:   # 48+ chars = already long enough
-            return token
-    except FileNotFoundError:
-        pass
-    token = secrets.token_hex(32)   # 64-char hex — brute force infeasible
-    with open(TOKEN_FILE, "w") as f:
-        f.write(token)
-    os.chmod(TOKEN_FILE, 0o600)
-    return token
-
-
-_lan_token: Optional[str] = _get_or_create_token() if _LAN_MODE else None
-
-
 # ─── Rate limiting ────────────────────────────────────────────────────────────
 # Simple in-process sliding window: max 20 write requests per IP per minute.
 # Prevents spam injection and brute-force token guessing on write endpoints.
@@ -157,6 +158,12 @@ _rate_buckets: dict[str, list] = {}
 _rate_lock = threading.Lock()
 _RATE_WINDOW = 60    # seconds
 _RATE_MAX    = 20    # requests per window per IP
+
+
+def _rate_key() -> str:
+    """Rate-limit key. Behind the tunnel remote_addr is always 127.0.0.1 —
+    one shared bucket would let one player exhaust everyone's budget."""
+    return request.headers.get("CF-Connecting-IP") or request.remote_addr or "?"
 
 
 def _rate_ok(ip: str) -> bool:
@@ -204,6 +211,10 @@ _PRINTABLE    = re.compile(
 _SHELL_CHARS  = re.compile(r'[$`\\;|&><()\[\]{}!]')
 # Unicode \w covers letters from all scripts above.
 _CHAR_NAME_RE = re.compile(r"^\w[\w '\-]{0,48}\w$|^\w{1,2}$", re.UNICODE)
+_ART_NUMERIC_IP_HOST = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)(?:\.(?:0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$")
+_ART_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_ART_TEXT_LIMITS = {"title": 200, "category": 80, "kind": 80, "creator": 200, "alt": 500}
+_ART_URL_LIMIT = 2_000
 
 
 def _sanitize_input(text: str) -> str:
@@ -220,6 +231,67 @@ def _char_ok(name: str, known: set) -> bool:
     if known and name not in known and name != "Everybody":
         return False
     return True
+
+
+def _validate_art_url(value: object) -> str:
+    """Validate a public HTTPS art URL without fetching or resolving it."""
+    if not isinstance(value, str) or len(value) > _ART_URL_LIMIT:
+        raise ValueError("URL must be a bounded string")
+    try:
+        parts = urlsplit(value.strip())
+        hostname = parts.hostname
+        parts.port  # raises ValueError for malformed ports
+    except ValueError as error:
+        raise ValueError("URL is malformed") from error
+    if parts.scheme.lower() != "https" or not parts.netloc or not hostname:
+        raise ValueError("URL must be absolute HTTPS")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("URL credentials are not allowed")
+
+    host = hostname.rstrip(".").lower()
+    if (host == "localhost" or host.endswith(".localhost")
+            or host == "nip.io" or host.endswith(".nip.io")
+            or host == "sslip.io" or host.endswith(".sslip.io")):
+        raise ValueError("Local URLs are not allowed")
+    if _ART_NUMERIC_IP_HOST.fullmatch(host):
+        raise ValueError("Numeric IP address forms are not allowed")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+        except UnicodeError as error:
+            raise ValueError("Hostname is malformed") from error
+        if (len(ascii_host) > 253
+                or any(not _ART_DNS_LABEL.fullmatch(label) for label in ascii_host.split("."))):
+            raise ValueError("Hostname is malformed")
+    else:
+        if not address.is_global:
+            raise ValueError("Non-public IP addresses are not allowed")
+    return urlunsplit((parts.scheme.lower(), parts.netloc, parts.path, parts.query, parts.fragment))
+
+
+def _validate_art_payload(data: object) -> dict:
+    """Return the compact, browser-safe active-art payload or raise ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("Art payload must be an object")
+    payload = {}
+    for field, limit in _ART_TEXT_LIMITS.items():
+        value = data.get(field, "")
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string")
+        value = " ".join(value.split())
+        if len(value) > limit:
+            raise ValueError(f"{field} is too long")
+        if field == "title" and not value:
+            raise ValueError("title cannot be blank")
+        if value:
+            payload[field] = value
+    for field in ("image_url", "source_url"):
+        if field not in data:
+            raise ValueError(f"{field} is required")
+        payload[field] = _validate_art_url(data[field])
+    return payload
 
 
 # ─── Device approval system ───────────────────────────────────────────────────
@@ -282,9 +354,9 @@ def _device_ok(device_id: str, ip: str) -> str:
             return "approved"
         if device_id in _denied_devices:
             return "denied"
-        # Auto-approve localhost always, and every reachable device unless the
-        # approval gate is explicitly required.
-        if not _REQUIRE_APPROVAL or ip in ("127.0.0.1", "::1"):
+        # Auto-approve every reachable device unless the approval gate is
+        # explicitly required. Device state must never derive from remote_addr.
+        if not _REQUIRE_APPROVAL:
             _approved_devices.add(device_id)
             _need_persist = True
         elif device_id not in _pending_devices:
@@ -380,17 +452,104 @@ def _check_auto_trigger() -> None:
     _broadcast({"staged_inputs": {}, "queue_status": list(char_names)})
 
 
-def _token_ok() -> bool:
-    """Return True if the request carries the correct LAN token (or we're in localhost mode)."""
-    if _lan_token is None:
-        return True   # localhost mode — no token required
-    provided = request.headers.get("X-DND-Token", "")
-    return hmac.compare_digest(provided, _lan_token)
-
-
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-CORS(app)
+_PUBLIC_HOST = os.environ.get("GM_PUBLIC_HOST", "").strip()
+_ALLOWED_ORIGINS = {"http://localhost:5001", "http://127.0.0.1:5001"}
+if _PUBLIC_HOST:
+    _ALLOWED_ORIGINS.add(f"https://{_PUBLIC_HOST}")
+CORS(app, origins=sorted(_ALLOWED_ORIGINS))
+
+# ─── Fail-closed identity gate (spec §3) ──────────────────────────────────────
+# Sole access-control authority. Endpoint sets use Flask endpoint (view function)
+# names, not URL paths. Anything not listed fails closed (403) for non-GM roles.
+_PUBLIC_ENDPOINTS = {"join", "ping", "health", "static"}
+_GM_ENDPOINTS = {"chunk", "stats", "art", "drain_player_input", "dice_request"}
+_PLAYER_ENDPOINTS = {
+    "index", "stream", "srd_lookup", "player_input", "stage_input", "ready_input",
+    "unstage_input", "skip_input", "player_dice", "narration_pref", "roll_pref",
+    "tts_synthesize", "tts_voice", "audio_toggle", "audio_sfx", "effects_expire",
+    "help_request", "dice_request_status", "get_character_sheet",
+}
+
+
+def _is_tunnelled() -> bool:
+    """True when the request traversed a proxy hop (cloudflared or otherwise).
+
+    Presence of these headers only ever DOWNGRADES trust — a tunnelled request
+    can never be 'gm' or 'local'. Absence never upgrades a failed check.
+    """
+    return bool(request.headers.get("CF-Connecting-IP")
+                or request.headers.get("X-Forwarded-For"))
+
+
+def _is_local() -> bool:
+    """Genuinely local: no proxy hop AND loopback peer. A --lan stranger or an
+    ssh -R hop has a non-loopback remote_addr (or forwarding headers) → not local.
+    Absence of tunnel headers never upgrades a non-loopback peer."""
+    return (not _is_tunnelled()
+            and request.remote_addr in ("127.0.0.1", "::1", None))
+
+
+def _resolve_identity():
+    cookie = request.cookies.get("gm_session")
+    if cookie:
+        payload = tokens.verify(cookie, secret=_INVITE_SECRET, kind="session")
+        try:
+            revoked = bool(payload) and _REVOCATION.is_sid_revoked(payload.get("sid", ""))
+        except RuntimeError:
+            # corrupt/unreadable revocation store: cannot confirm good standing,
+            # so fail closed. Local console must not brick itself.
+            return {"role": "local"} if _is_local() else None
+        if payload and not revoked:
+            return {"role": "player", "player_id": payload["player_id"],
+                    "character": payload["character"]}
+        # invalid/expired/revoked cookie: local console must not brick itself
+        return {"role": "local"} if _is_local() else None
+    header = request.headers.get("X-GM-Secret", "")
+    if header and not _is_tunnelled() and hmac.compare_digest(header, _GM_SECRET):
+        return {"role": "gm"}
+    if _is_local():
+        return {"role": "local"}
+    return None
+
+
+def _bound_character(fallback: str = "") -> str:
+    """Authenticated players act only as themselves; local/gm may name anyone."""
+    ident = getattr(g, "identity", None) or {}
+    if ident.get("role") == "player":
+        return ident["character"]
+    return fallback
+
+
+@app.before_request
+def _gate():
+    """Sole access authority (spec §3): fail-closed over reads and writes."""
+    g.identity = _resolve_identity()
+    endpoint = (request.endpoint or "").split(".")[-1]
+    if endpoint in _PUBLIC_ENDPOINTS:
+        return None
+    if g.identity is None:
+        return jsonify({"error": "forbidden"}), 403
+    role = g.identity["role"]
+    if role == "player" and endpoint not in _PLAYER_ENDPOINTS and _is_local():
+        # GM opened a join link in their console browser: console keeps working
+        g.identity = {"role": "local"}
+        role = "local"
+    if role == "gm":
+        return None
+    if endpoint in _GM_ENDPOINTS:
+        return jsonify({"error": "forbidden"}), 403
+    if role == "player" and endpoint not in _PLAYER_ENDPOINTS:
+        return jsonify({"error": "forbidden"}), 403
+    # CSRF: authorized non-GM writers must present an allow-listed Origin.
+    # SameSite=Lax alone does not stop top-level form POSTs (spec §5). GM CLI
+    # clients send no Origin, hence the role != "gm" carve-out.
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and role != "gm":
+        origin = request.headers.get("Origin") or request.headers.get("Referer", "")
+        if not any(origin == o or origin.startswith(o + "/") for o in _ALLOWED_ORIGINS):
+            return jsonify({"error": "bad origin"}), 403
+    return None
 
 # Wire audio broadcast after _broadcast is defined (see bottom of file)
 # — done lazily via set_broadcast() called after app is created.
@@ -1026,6 +1185,11 @@ _load_tail()
 _current_stats: dict = {}
 _stats_lock = threading.Lock()
 
+# Active GM-selected art is ephemeral session state, replayed to reconnecting
+# clients but deliberately not persisted to the campaign or display filesystem.
+_active_art: Optional[dict] = None
+_active_art_lock = threading.Lock()
+
 
 def _persist_stats() -> None:
     try:
@@ -1105,6 +1269,30 @@ def _broadcast(payload: dict) -> None:
             _client_chars.pop(q, None)
 
 
+def _envelope(event_type, identity, payload):
+    """Canonical message envelope (spec §3b). Schema frozen for Spec 2."""
+    return {"v": 1, "type": event_type, "identity": identity, "payload": payload}
+
+
+def _broadcast_to(character, payload):
+    """Push payload only to SSE clients registered for this character.
+
+    Normalizes the character exactly like /stream registration (strip,
+    lowercase, cap 48) and delivers to every matching queue — a player may
+    have several connected devices.
+    """
+    target = (character or "").strip().lower()[:48]
+    if not target:
+        return
+    with _clients_lock:
+        matches = [q for q, c in _client_chars.items() if c == target]
+    for q in matches:
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            pass
+
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 _SYSTEMS_DIR = pathlib.Path(__file__).resolve().parent.parent / "systems"
@@ -1137,12 +1325,34 @@ def _load_ui_manifest() -> str:
     return json.dumps(manifest, separators=(",", ":")).replace("<", "\\u003c")
 
 
+@app.route("/j/<path:token>")
+def join(token):
+    payload = tokens.verify(token, secret=_INVITE_SECRET, kind="join")
+    try:
+        if payload is None or not _REVOCATION.consume_jti(payload["jti"]):
+            return _JOIN_DENIED_HTML, 403
+        session_token = tokens.mint_session(
+            payload["player_id"], payload["character"], payload["campaign"],
+            secret=_INVITE_SECRET)
+        sid = tokens.verify(session_token, secret=_INVITE_SECRET, kind="session")["sid"]
+        _REVOCATION.set_active(payload["player_id"], sid)
+    except RuntimeError as e:
+        # Corrupt/unreadable revocation store: fail closed as a plain 403,
+        # never surface as a 500.
+        return jsonify({"error": str(e)}), 403
+    resp = redirect("/")
+    # Secure only off-localhost: Chrome/Safari drop Secure cookies on plain
+    # http, which would break local dev; behind the tunnel the page is https.
+    resp.set_cookie("gm_session", session_token, max_age=tokens.SESSION_TTL_S,
+                    httponly=True, samesite="Lax",
+                    secure=not request.host.startswith(("localhost", "127.0.0.1")))
+    return resp
+
+
 @app.route("/")
 def index():
-    # Pass LAN token to template so the browser can authenticate /help-request
     return render_template(
         "index.html",
-        lan_token=_lan_token or "",
         narrator_voice=_read_narrator_voice(),
         tts_available=(_tts is not None),
         ui_manifest=_load_ui_manifest(),
@@ -1227,8 +1437,6 @@ def health():
 
 @app.route("/chunk", methods=["POST"])
 def chunk():
-    if not _token_ok():
-        return "Forbidden", 403
     data = request.get_json(silent=True) or {}
 
     # Campaign registration — write .campaign file and reload log + tail for correct
@@ -1354,6 +1562,31 @@ def chunk():
     return "", 204
 
 
+@app.route("/art", methods=["POST"])
+def art():
+    """Set or clear the active campaign art shown to every SSE client."""
+    global _active_art
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "art payload must be an object"}), 400
+    action = data.get("action")
+    if action == "hide":
+        with _active_art_lock:
+            _active_art = None
+            _broadcast({"art": None})
+        return "", 204
+    if action != "show":
+        return jsonify({"error": "action must be show or hide"}), 400
+    try:
+        payload = _validate_art_payload(data)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    with _active_art_lock:
+        _active_art = payload
+        _broadcast({"art": payload})
+    return "", 204
+
+
 @app.route("/stats", methods=["POST"])
 def stats():
     """Receive character/combat stat updates. Merges players by name, replaces turn_order.
@@ -1361,8 +1594,6 @@ def stats():
     Pass replace_players=true to replace the entire player list (use on /dnd load to
     prevent stale characters from a previous campaign persisting in the sidebar).
     """
-    if not _token_ok():
-        return "Forbidden", 403
     data = request.get_json(silent=True) or {}
     if not data:
         return "", 204
@@ -1603,10 +1834,8 @@ def effects_expire():
     Removes the effect from stats, clears concentration if applicable,
     and broadcasts effect_expired to all connected clients.
     """
-    if not _token_ok():
-        return "Forbidden", 403
     data  = request.get_json(silent=True) or {}
-    owner = data.get("owner", "").strip()
+    owner = _bound_character(data.get("owner", "").strip())
     name  = data.get("name", "").strip()
     if not owner or not name:
         return "", 400
@@ -1664,9 +1893,7 @@ def narration_pref():
     directive to queued player input so the GM honors it that turn — no
     separate file read required on the GM side.
     """
-    if not _token_ok():
-        return "Forbidden", 403
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
     try:
@@ -1697,12 +1924,10 @@ def roll_pref():
     persistence — otherwise a crafted value could smuggle prompt text into the GM
     through the [[<Char> roll mode: …]] template that check_input.py emits.
     """
-    if not _token_ok():
-        return "Forbidden", 403
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
-    char = (data.get("character") or "").strip()
+    char = _bound_character((data.get("character") or "").strip())
     mode = (data.get("mode") or "").strip().lower()
     if not char or mode not in ("auto", "players"):
         return {"ok": False}, 400
@@ -1803,9 +2028,7 @@ def tts_synthesize():
     """
     if _tts is None:
         return "TTS module unavailable", 503
-    if not _token_ok():
-        return "Forbidden", 403
-    if not _rate_ok(request.remote_addr or "?"):
+    if not _rate_ok(_rate_key()):
         return "Rate limited", 429
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -1838,8 +2061,6 @@ def tts_voice():
     """Persist narrator voice selection for the active campaign."""
     if _tts is None:
         return jsonify({"voice": "", "persisted": False}), 503
-    if not _token_ok():
-        return "Forbidden", 403
     data = request.get_json(silent=True) or {}
     voice = (data.get("voice") or "").strip()
     if voice not in _tts.VALID_VOICES:
@@ -1866,8 +2087,6 @@ def clear():
 
     Called on /dnd new (fresh campaign). Ensures sidebar shows no stale characters.
     """
-    if not _token_ok():
-        return "Forbidden", 403
     global _scene_buffer, _current_stats
     with _text_log_lock:
         _text_log.clear()
@@ -1891,8 +2110,6 @@ def help_request():
     so multiple players clicking the button never duplicates execution.
     Lock is released by dm_help.py in its finally block.
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
     # Atomic lock: O_EXCL fails if file already exists — no race condition
     try:
@@ -1928,19 +2145,24 @@ def player_input():
     Body: {"character": "Mira", "text": "I draw my rapier", "hold": false}
     Broadcasts pending_input event to all connected browsers.
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
     import time
+    if not _rate_ok(_rate_key()):
+        return "Too Many Requests", 429
     data = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", "Party"))[:50]
-    text = str(data.get("text", ""))[:500]
+    character = _bound_character(str(data.get("character", "Party"))[:50])
+    text = _sanitize_input(str(data.get("text", "")))
     hold = bool(data.get("hold", False))
 
-    # Strip shell metacharacters — input is player dialogue/action, not commands
-    text = re.sub(r"[`\\$]", "", text).strip()
     if not text:
         return "empty", 400
+
+    with _stats_lock:
+        known = {p["name"] for p in _current_stats.get("players", [])}
+    # Same validation as stage_input, plus the route's legacy default "Party"
+    # so characterless local console posts keep working.
+    if not (_char_ok(character, known) or character == "Party"):
+        return "Forbidden", 403
 
     entry = {
         "character": character,
@@ -1970,11 +2192,9 @@ def player_dice():
     a dice-typed entry on the feed, and returns the result so the phone can
     finish its slot-machine animation on the real value.
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
     data = request.get_json(force=True, silent=True) or {}
-    character = re.sub(r"[`\\$]", "", str(data.get("character", "Player"))[:50]).strip() or "Player"
+    character = _bound_character(re.sub(r"[`\\$]", "", str(data.get("character", "Player"))[:50]).strip() or "Player")
     spec      = str(data.get("spec", "1d20")).strip().lower()
     modifier  = int(data.get("modifier", 0) or 0)
     adv       = str(data.get("advantage", "normal")).strip().lower()
@@ -2077,8 +2297,6 @@ def dice_request():
     targets every phone. No state stored — late-joining phones will not see
     requests issued before they connected.
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
     import time
     data = request.get_json(force=True, silent=True) or {}
@@ -2147,8 +2365,6 @@ def dice_request_status(request_id):
     never existed (or has already fully drained) reports complete=True with
     an empty pending list — send.py --wait treats both identically.
     """
-    if not _token_ok():
-        return "Forbidden", 403
     with _dice_pending_lock:
         entry = _dice_pending.get(request_id)
         if entry is None or not entry["chars"]:
@@ -2164,8 +2380,6 @@ def dice_request_status(request_id):
 @app.route("/dice-request/<request_id>", methods=["DELETE"])
 def dice_request_cancel(request_id):
     """Cancel a pending dice request (GM gave up waiting / moved on)."""
-    if not _token_ok():
-        return "Forbidden", 403
     with _dice_pending_lock:
         _dice_pending.pop(request_id, None)
     _broadcast({"dice_pending": _dice_pending_snapshot(), "dice_request_cancelled": request_id})
@@ -2188,9 +2402,8 @@ def get_character_sheet(character):
     Returns text/markdown so the phone can render in JS without server-side
     dependencies (no `markdown` lib required).
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
+    character = _bound_character(character)
     safe = re.sub(r"[^A-Za-z0-9 _-]", "", character).strip()[:50]
     if not safe:
         return "Bad character name", 400
@@ -2229,8 +2442,6 @@ def get_character_sheet(character):
 @app.route("/device/approve", methods=["POST"])
 def device_approve():
     """DM approves a pending device. Body: {"id": "<device_id>"}"""
-    if not _token_ok():
-        return "Forbidden", 403
     device_id = str((request.get_json(force=True, silent=True) or {}).get("id", ""))
     with _devices_lock:
         _pending_devices.pop(device_id, None)
@@ -2242,8 +2453,6 @@ def device_approve():
 @app.route("/device/deny", methods=["POST"])
 def device_deny():
     """DM denies a pending device. Body: {"id": "<device_id>"}"""
-    if not _token_ok():
-        return "Forbidden", 403
     device_id = str((request.get_json(force=True, silent=True) or {}).get("id", ""))
     with _devices_lock:
         _pending_devices.pop(device_id, None)
@@ -2258,20 +2467,22 @@ def stage_input():
 
     Body: {"character": "Mira", "text": "draws her rapier"}
     """
-    if not _token_ok():
-        return "Forbidden", 403
-    if not _rate_ok(request.remote_addr):
+    if not _rate_ok(_rate_key()):
         return "Too Many Requests", 429
 
-    device_id = request.headers.get("X-DND-Device", "")
-    status    = _device_ok(device_id, request.remote_addr)
-    if status == "denied":
-        return "Forbidden", 403
-    if status == "pending":
-        return jsonify({"status": "pending"}), 202
+    # A signed session cookie is strictly stronger than the device-id ritual;
+    # authenticated players bypass the device gate. Cookieless local/GM console
+    # keeps the existing device flow.
+    if (getattr(g, "identity", None) or {}).get("role") != "player":
+        device_id = request.headers.get("X-DND-Device", "")
+        status    = _device_ok(device_id, request.remote_addr)
+        if status == "denied":
+            return "Forbidden", 403
+        if status == "pending":
+            return jsonify({"status": "pending"}), 202
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     text      = _sanitize_input(str(data.get("text", "")))
 
     if not character or not text:
@@ -2301,20 +2512,22 @@ def ready_input():
     Body: {"character": "Mira", "ready": true}
     Triggers auto-fire when all expected players are ready.
     """
-    if not _token_ok():
-        return "Forbidden", 403
-    if not _rate_ok(request.remote_addr):
+    if not _rate_ok(_rate_key()):
         return "Too Many Requests", 429
 
-    device_id = request.headers.get("X-DND-Device", "")
-    status    = _device_ok(device_id, request.remote_addr)
-    if status == "denied":
-        return "Forbidden", 403
-    if status == "pending":
-        return jsonify({"status": "pending"}), 202
+    # A signed session cookie is strictly stronger than the device-id ritual;
+    # authenticated players bypass the device gate. Cookieless local/GM console
+    # keeps the existing device flow.
+    if (getattr(g, "identity", None) or {}).get("role") != "player":
+        device_id = request.headers.get("X-DND-Device", "")
+        status    = _device_ok(device_id, request.remote_addr)
+        if status == "denied":
+            return "Forbidden", 403
+        if status == "pending":
+            return jsonify({"status": "pending"}), 202
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     ready     = bool(data.get("ready", True))
 
     with _staged_lock:
@@ -2337,15 +2550,15 @@ def unstage_input():
 
     Body: {"character": "Mira"}
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
-    device_id = request.headers.get("X-DND-Device", "")
-    if _device_ok(device_id, request.remote_addr) != "approved":
-        return "Forbidden", 403
+    # Authenticated players bypass the device gate (signed cookie is stronger).
+    if (getattr(g, "identity", None) or {}).get("role") != "player":
+        device_id = request.headers.get("X-DND-Device", "")
+        if _device_ok(device_id, request.remote_addr) != "approved":
+            return "Forbidden", 403
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
 
     with _staged_lock:
         _staged.pop(character, None)
@@ -2362,15 +2575,15 @@ def skip_input():
     Counts toward the auto-trigger threshold and fires auto-trigger if threshold met.
     Body: {"character": "Mira"}
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
-    device_id = request.headers.get("X-DND-Device", "")
-    if _device_ok(device_id, request.remote_addr) != "approved":
-        return "Forbidden", 403
+    # Authenticated players bypass the device gate (signed cookie is stronger).
+    if (getattr(g, "identity", None) or {}).get("role") != "player":
+        device_id = request.headers.get("X-DND-Device", "")
+        if _device_ok(device_id, request.remote_addr) != "approved":
+            return "Forbidden", 403
 
     data      = request.get_json(force=True, silent=True) or {}
-    character = str(data.get("character", ""))[:50].strip()
+    character = _bound_character(str(data.get("character", ""))[:50].strip())
     if not character:
         return "Bad Request", 400
 
@@ -2401,8 +2614,6 @@ def queue_consumed():
     Token required (called from localhost by the wrapper, but checked for
     consistency).
     """
-    if not _token_ok():
-        return "Forbidden", 403
     with _queue_status_lock:
         _queue_status.clear()
     _broadcast({"queue_status": [], "dm_processing": True})
@@ -2417,8 +2628,6 @@ def submit_now():
     right now rather than waiting for the DM's next CLI Enter press.
     Token required (DM-only action).
     """
-    if not _token_ok():
-        return "Forbidden", 403
     try:
         content = open(QUEUE_FILE).read()
         os.unlink(QUEUE_FILE)
@@ -2441,8 +2650,6 @@ def drain_player_input():
     Returns the drained entries as JSON, then broadcasts pending_input: [] to
     clear the indicator on all connected displays.
     """
-    if not _token_ok():
-        return "Forbidden", 403
 
     with _input_lock:
         drained = list(_input_queue)
@@ -2460,7 +2667,7 @@ def stream():
         _clients.append(q)
         # Register this client's bound character (phones pass ?character=/?char=);
         # the main display passes neither. Drives dice-request phone-vs-screen routing.
-        _ch = (request.args.get("character") or request.args.get("char") or "").strip().lower()[:48]
+        _ch = _bound_character((request.args.get("character") or request.args.get("char") or "").strip()).strip().lower()[:48]
         if _ch:
             _client_chars[q] = _ch
 
@@ -2480,6 +2687,12 @@ def stream():
     with _stats_lock:
         if _current_stats:
             q.put_nowait({"stats": dict(_current_stats)})
+
+    # Active art is sent after stats so reconnecting clients receive the
+    # stable display state in the same order as live art updates expect.
+    with _active_art_lock:
+        if _active_art is not None:
+            q.put_nowait({"art": dict(_active_art)})
 
     # Send current input queue so the pending indicator is accurate on reconnect.
     with _input_lock:
@@ -2554,15 +2767,18 @@ def stream():
         generate(),
         mimetype="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            # no-transform stops proxies (Cloudflare included) from buffering
+            # or re-encoding the event stream; X-Accel-Buffering disables
+            # nginx-style buffering. Do NOT set Transfer-Encoding or Connection
+            # here: the WSGI server manages response framing, and a manual
+            # duplicate Transfer-Encoding makes cloudflared reject the whole
+            # response as a smuggling hazard (502 Bad Gateway) — which killed
+            # SSE through the tunnel. The earlier manual headers were a
+            # LAN/eero-mesh anti-buffering hack; the tunnel is the primary path.
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
-            "Transfer-Encoding": "chunked",
         },
     )
-    # Force a single authoritative Connection header — Werkzeug otherwise
-    # emits both keep-alive (ours) and close (its default), which confuses
-    # transparent proxies (e.g. eero mesh routing) into buffering the stream.
-    resp.headers["Connection"] = "keep-alive"
     return resp
 
 
@@ -2591,8 +2807,6 @@ if __name__ == "__main__":
     if _LAN_MODE:
         print(f"GM Display — LAN mode (0.0.0.0:5001) [{scheme.upper()}]")
         print(f"  Local:  {scheme}://localhost:5001")
-        print("  Token stored at:", TOKEN_FILE)
-        print("  POST endpoints require X-DND-Token header (send.py/push_stats.py handle this automatically)")
         print()
     else:
         print(f"GM Display — Flask server starting on {scheme}://localhost:5001")

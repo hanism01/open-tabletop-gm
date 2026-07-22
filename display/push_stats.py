@@ -80,7 +80,7 @@ _DISPLAY_DIR = os.path.dirname(os.path.abspath(__file__))
 _SCHEME_FILE = os.path.join(_DISPLAY_DIR, ".scheme")
 _SCHEME = open(_SCHEME_FILE).read().strip() if os.path.exists(_SCHEME_FILE) else "http"
 FLASK_URL  = f"{_SCHEME}://localhost:5001/stats"
-TOKEN_FILE = os.path.join(_DISPLAY_DIR, ".token")
+TOKEN_FILE = os.path.join(_DISPLAY_DIR, ".gm_secret")
 TIMEOUT    = 2.0
 
 # SSL context — only used when running HTTPS (self-signed cert)
@@ -102,7 +102,7 @@ def _read_token() -> str:
 def _send(url: str, data: bytes, token: str) -> None:
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["X-DND-Token"] = token
+        headers["X-GM-Secret"] = token
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX)

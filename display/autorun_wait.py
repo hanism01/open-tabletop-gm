@@ -33,7 +33,7 @@ except Exception:
 QFILE = os.path.join(DISPLAY_DIR, ".input_queue")
 SESSION_FILE = os.path.join(DISPLAY_DIR, ".autorun-session")
 CAMP_FILE = os.path.join(DISPLAY_DIR, ".campaign")
-TOKEN_FILE = os.path.join(DISPLAY_DIR, ".token")
+TOKEN_FILE = os.path.join(DISPLAY_DIR, ".gm_secret")
 SCHEME_FILE = os.path.join(DISPLAY_DIR, ".scheme")
 
 # Invalidate any previous wait loop by writing a new session id (python write — TCC-ok)
@@ -115,7 +115,7 @@ if content:
         req = urllib.request.Request(
             f"{scheme}://localhost:5001/queue/consumed",
             data=b"", method="POST",
-            headers={"X-DND-Token": token},
+            headers={"X-GM-Secret": token},
         )
         urllib.request.urlopen(req, timeout=1, context=ctx)
     except Exception:

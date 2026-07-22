@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="dnd-token" content="{{ lan_token }}">
 <meta name="narrator-voice" content="{{ narrator_voice }}">
 <meta name="tts-available" content="{{ '1' if tts_available else '0' }}">
 
@@ -171,6 +170,97 @@
        narration/NPC/player blocks size in em, so they scale from here; set via
        the "Text Size" control in Settings (localStorage["gm-text-scale"]). */
     font-size: calc(1em * var(--text-scale, 1));
+  }
+
+  /* ── Scene art — a normal part of the reading flow, never an overlay ── */
+  .scene-art-panel {
+    width: 100%;
+    max-width: min(62vw, 900px);
+    margin: 0 auto 2.2em;
+    padding: 0.8em;
+    border: 1px solid rgba(180, 140, 60, 0.38);
+    background: rgba(18, 11, 4, 0.72);
+    box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.32);
+  }
+  .scene-art-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7em;
+    margin-bottom: 0.55em;
+  }
+  .scene-art-title {
+    flex: 1;
+    font-family: 'Cinzel', serif;
+    font-size: 0.64em;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(232, 204, 142, 0.95);
+  }
+  .scene-art-category {
+    font-family: 'Cinzel', serif;
+    font-size: 0.46em;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(212, 188, 134, 0.68);
+  }
+  .scene-art-toggle {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: rgba(232, 204, 142, 0.76);
+    cursor: pointer;
+    font: 0.5em/1 'Cinzel', serif;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .scene-art-toggle:hover, .scene-art-toggle:focus-visible { color: #f0d27a; }
+  .scene-art-image {
+    display: block;
+    width: 100%;
+    max-height: 50vh;
+    object-fit: contain;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  .scene-art-failure {
+    padding: 1.2em;
+    border: 1px dashed rgba(210, 140, 90, 0.55);
+    color: rgba(240, 190, 145, 0.9);
+    font-size: 0.72em;
+  }
+  .scene-art-caption {
+    margin-top: 0.65em;
+    color: rgba(212, 196, 160, 0.82);
+    font-size: 0.72em;
+    line-height: 1.45;
+  }
+  .scene-art-caption a { color: rgba(240, 210, 135, 0.94); }
+  .scene-art-show-chip {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 0 2.2em;
+    border: 1px solid rgba(180, 140, 60, 0.38);
+    background: rgba(18, 11, 4, 0.72);
+    color: rgba(232, 204, 142, 0.88);
+    cursor: pointer;
+    padding: 0.5em 0.8em;
+    font: 0.52em/1 'Cinzel', serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .scene-art-announcement {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  @media (max-width: 700px) {
+    .scene-art-panel { max-width: none; padding: 0.55em; }
+    .scene-art-image { max-height: 38vh; }
   }
 
   .dm-block {
@@ -3707,6 +3797,147 @@ loop();
 const textScroll  = document.getElementById('text-scroll');
 const textContent = document.getElementById('text-content');
 
+// ── Scene art ─────────────────────────────────────────────────────────────
+// Art lives in #text-content so it scrolls with the narration and never
+// competes with the fixed sidebar, controls, or party-input composer.
+let _sceneArtHost = null;
+let _sceneArtKey = null;
+let _sceneArtCollapsedKey = null;
+
+function _sceneArtIdentity(art) {
+  return String(art.id || art.image_url || art.source_url || art.title || 'scene-art');
+}
+
+function _sceneArtSourceDomain(sourceUrl) {
+  try { return new URL(sourceUrl).hostname; } catch (_) { return 'source'; }
+}
+
+function _announceSceneArt(message) {
+  let announcer = document.getElementById('scene-art-announcement');
+  if (!announcer) {
+    announcer = document.createElement('div');
+    announcer.id = 'scene-art-announcement';
+    announcer.className = 'scene-art-announcement';
+    announcer.setAttribute('aria-live', 'polite');
+    announcer.setAttribute('aria-atomic', 'true');
+    textContent.appendChild(announcer);
+  }
+  announcer.textContent = message;
+}
+
+function clearSceneArt() {
+  const hadArt = Boolean(_sceneArtHost);
+  if (hadArt) _flushForBlock();
+  if (_sceneArtHost) _sceneArtHost.remove();
+  _sceneArtHost = null;
+  _sceneArtKey = null;
+  _sceneArtCollapsedKey = null;
+  if (hadArt) _reanchorCursor();
+}
+
+function renderSceneArt(art) {
+  if (!art) { clearSceneArt(); return; }
+  const key = _sceneArtIdentity(art);
+  if (key === _sceneArtKey && _sceneArtHost) return;
+
+  const changed = _sceneArtKey !== null && key !== _sceneArtKey;
+  _sceneArtKey = key;
+  if (changed) _sceneArtCollapsedKey = null;
+
+  const show = () => {
+    _flushForBlock();
+    const panel = document.createElement('figure');
+    panel.className = 'scene-art-panel';
+    panel.dataset.artId = key;
+
+    const header = document.createElement('div');
+    header.className = 'scene-art-header';
+    const title = document.createElement('strong');
+    title.className = 'scene-art-title';
+    title.textContent = art.title || 'Scene art';
+    const category = document.createElement('span');
+    category.className = 'scene-art-category';
+    category.textContent = art.category || art.kind || 'scene';
+    const hide = document.createElement('button');
+    hide.type = 'button';
+    hide.className = 'scene-art-toggle';
+    hide.textContent = 'Hide scene art';
+    hide.setAttribute('aria-label', `Hide scene art: ${art.title || 'scene'}`);
+    header.append(title, category, hide);
+
+    const image = document.createElement('img');
+    image.className = 'scene-art-image';
+    image.src = art.image_url || '';
+    image.alt = art.alt || art.title || 'Scene art';
+
+    const failure = document.createElement('p');
+    failure.className = 'scene-art-failure';
+    failure.hidden = true;
+    failure.textContent = 'Scene art could not be loaded. The source is still available below.';
+    image.addEventListener('error', () => {
+      image.hidden = true;
+      failure.hidden = false;
+    });
+
+    const caption = document.createElement('figcaption');
+    caption.className = 'scene-art-caption';
+    const credit = document.createElement('span');
+    const creator = art.creator ? `Artwork by ${art.creator}` : 'Artwork';
+    credit.textContent = `${creator} · ${_sceneArtSourceDomain(art.source_url)}`;
+    const sourceLink = document.createElement('a');
+    sourceLink.href = art.source_url || '#';
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener noreferrer';
+    sourceLink.textContent = 'View source';
+    caption.append(credit, document.createTextNode(' · '), sourceLink);
+    panel.append(header, image, failure, caption);
+
+    hide.addEventListener('click', () => {
+      _flushForBlock();
+      _sceneArtCollapsedKey = key;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'scene-art-show-chip';
+      chip.textContent = `Show scene art: ${art.title || 'scene'}`;
+      chip.setAttribute('aria-label', `Show scene art: ${art.title || 'scene'}`);
+      chip.addEventListener('click', () => {
+        _sceneArtCollapsedKey = null;
+        show();
+      });
+      panel.replaceWith(chip);
+      _sceneArtHost = chip;
+      _reanchorCursor();
+    });
+
+    if (_sceneArtHost) _sceneArtHost.replaceWith(panel);
+    else textContent.appendChild(panel);
+    _sceneArtHost = panel;
+    _reanchorCursor();
+  };
+
+  if (_sceneArtCollapsedKey === key) {
+    // A reconnect/re-render of the same art preserves this browser's choice.
+    _flushForBlock();
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'scene-art-show-chip';
+    chip.textContent = `Show scene art: ${art.title || 'scene'}`;
+    chip.setAttribute('aria-label', `Show scene art: ${art.title || 'scene'}`);
+    chip.addEventListener('click', () => {
+      _sceneArtCollapsedKey = null;
+      show();
+    });
+    if (_sceneArtHost) _sceneArtHost.replaceWith(chip);
+    else textContent.appendChild(chip);
+    _sceneArtHost = chip;
+    _reanchorCursor();
+  } else {
+    show();
+    _announceSceneArt(`New scene art: ${art.title || 'scene art'}`);
+  }
+  scrollToBottom();
+}
+
 let charQueue       = [];
 let isTyping        = false;
 let currentEl       = null;
@@ -4380,6 +4611,9 @@ function clearDisplay(then) {
     clearTimeout(idleTimer);
 
     textContent.innerHTML = '';
+    _sceneArtHost = null;
+    _sceneArtKey = null;
+    _sceneArtCollapsedKey = null;
     textScroll.scrollTop  = 0;
     userScrolledUp = false;
     textContent.style.opacity = '1';
@@ -5452,9 +5686,10 @@ _dmHelpBtn.addEventListener('click', async () => {
   }
 });
 
-// Read token from meta tag injected by Flask (LAN mode)
-const _dndTokenMeta = document.querySelector('meta[name="dnd-token"]');
-const _dndToken = _dndTokenMeta ? _dndTokenMeta.getAttribute('content') : null;
+// LAN token auth removed — identity is cookie/secret-based now. Kept as a
+// null constant so the (now dead-but-harmless) X-DND-Token spreads below
+// stay no-ops instead of throwing ReferenceError.
+const _dndToken = null;
 
 // Persistent device ID — survives page refreshes, identifies this browser for DM approval
 // crypto.randomUUID() requires a secure context (HTTPS/localhost); fall back to
@@ -6479,6 +6714,9 @@ function connect() {
     }
     if (payload.dice_pending !== undefined) {
       _updateDicePendingBadge(payload.dice_pending);
+    }
+    if (payload.art !== undefined) {
+      renderSceneArt(payload.art);
     }
 
     if (payload.stats) {
