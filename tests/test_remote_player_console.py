@@ -70,6 +70,21 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn("bodyEl.innerHTML = _renderMarkdown(md)", markup)
         self.assertIn("renderPlayerRoster(payload.stats.players)", markup)
 
+    def test_player_sheet_overlay_discards_stale_loads_and_restores_modal_state(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+
+        self.assertIn("let _playerSheetRequest = 0", markup)
+        self.assertIn("const request = ++_playerSheetRequest", markup)
+        self.assertIn("request !== _playerSheetRequest", markup)
+        self.assertIn("++_playerSheetRequest", markup)
+        self.assertIn("bodyEl.innerHTML = ''", markup)
+        self.assertIn("document.body.classList.add('player-sheet-open')", markup)
+        self.assertIn("document.body.classList.remove('player-sheet-open')", markup)
+        self.assertIn("window.scrollTo(0, _playerSheetScrollY)", markup)
+        self.assertIn("event.key === 'Tab'", markup)
+        self.assertIn("event.shiftKey", markup)
+        self.assertIn("focusable[focusable.length - 1]", markup)
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()

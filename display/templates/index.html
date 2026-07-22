@@ -2080,6 +2080,11 @@
     z-index: 30;
     background: rgba(0,0,0,0.68);
   }
+  body.input-only.player-sheet-open {
+    position: fixed;
+    width: 100%;
+    overflow: hidden;
+  }
   body.input-only #player-sheet-panel {
     position: absolute;
     inset: 0 0 0 auto;
@@ -6128,6 +6133,8 @@ let _selectedChar     = 'Everybody';
 let _stagedData       = {};   // {char: {text, ready, timestamp}} — mirror of server state
 let _autorunThreshold = null; // null = use player count; int = explicit threshold
 let _playerSheetInvoker = null;
+let _playerSheetRequest = 0;
+let _playerSheetScrollY = 0;
 
 // ── Toggle open/closed ────────────────────────────────────────────
 _inputPanelHdr.addEventListener('click', () => {
@@ -6179,16 +6186,25 @@ function renderPlayerRoster(players) {
 function openCharacterSheet(name) {
   if (!_playerSheetOverlay || !name) return;
   _playerSheetInvoker = document.activeElement;
+  _playerSheetScrollY = window.scrollY;
+  document.body.classList.add('player-sheet-open');
+  document.body.style.top = `-${_playerSheetScrollY}px`;
   _playerSheetOverlay.classList.add('open');
   _playerSheetOverlay.setAttribute('aria-hidden', 'false');
+  document.getElementById('cp-status').textContent = '';
+  document.getElementById('cp-body').innerHTML = '';
   _playerSheetClose.focus();
   _loadCharacterSheet(name);
 }
 
 function closePlayerSheet() {
   if (!_playerSheetOverlay) return;
+  ++_playerSheetRequest;
   _playerSheetOverlay.classList.remove('open');
   _playerSheetOverlay.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('player-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, _playerSheetScrollY);
   if (_playerSheetInvoker && typeof _playerSheetInvoker.focus === 'function') {
     _playerSheetInvoker.focus();
   }
@@ -6202,6 +6218,22 @@ _playerSheetOverlay.addEventListener('click', event => {
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && _playerSheetOverlay.classList.contains('open')) {
     closePlayerSheet();
+    return;
+  }
+  if (event.key === 'Tab' && _playerSheetOverlay.classList.contains('open')) {
+    const focusable = _playerSheetOverlay.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 });
 
@@ -6992,6 +7024,7 @@ async function _loadCharacterSheet(name) {
   const status = document.getElementById('cp-status');
   const bodyEl = document.getElementById('cp-body');
   if (!status || !bodyEl) return;
+  const request = ++_playerSheetRequest;
   // Resolve the character: prefer ?char= / ?character=, then localStorage / typed name.
   const _qpCh = new URLSearchParams(location.search);
   const ch = (name || _qpCh.get('char') || _qpCh.get('character')
@@ -7007,15 +7040,18 @@ async function _loadCharacterSheet(name) {
     const res = await fetch(`/character/${encodeURIComponent(ch)}`, {
       headers: _authHeaders(),
     });
+    if (request !== _playerSheetRequest) return;
     if (!res.ok) {
       status.textContent = `Could not load sheet (${res.status})`;
       bodyEl.innerHTML = '';
       return;
     }
     const md = await res.text();
+    if (request !== _playerSheetRequest) return;
     bodyEl.innerHTML = _renderMarkdown(md);
     status.textContent = '';
   } catch (e) {
+    if (request !== _playerSheetRequest) return;
     status.textContent = `Network error — ${e.message || e}`;
     bodyEl.innerHTML = '';
   }
