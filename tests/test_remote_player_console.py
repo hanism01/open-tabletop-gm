@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -73,7 +74,25 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
     def test_character_sheet_rejects_invalid_or_non_party_names(self):
         self._login("Kara")
         self.assertEqual(self.client.get("/character/%40%40%40", headers=TUNNEL).status_code, 400)
-        self.assertEqual(self.client.get("/character/NotInParty", headers=TUNNEL).status_code, 403)
+        self.assertEqual(self.client.get("/character/NotInParty", headers=TUNNEL).status_code, 404)
+
+    def test_character_sheet_rejects_everybody_action_alias(self):
+        with tempfile.TemporaryDirectory() as root:
+            characters = pathlib.Path(root) / "characters"
+            characters.mkdir()
+            (characters / "Everybody.md").write_text("This must not be readable")
+            previous = os.environ.get("GM_CAMPAIGN_ROOT")
+            os.environ["GM_CAMPAIGN_ROOT"] = root
+            try:
+                self._login("Kara")
+                response = self.client.get("/character/Everybody", headers=TUNNEL)
+            finally:
+                if previous is None:
+                    os.environ.pop("GM_CAMPAIGN_ROOT", None)
+                else:
+                    os.environ["GM_CAMPAIGN_ROOT"] = previous
+        self.assertIn(response.status_code, (400, 404))
+        self.assertNotIn("This must not be readable", response.get_data(as_text=True))
 
     def test_bound_player_stages_only_their_own_action(self):
         self._login("Kara")
@@ -84,6 +103,17 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertLess(response.status_code, 300, response.get_data(as_text=True))
         self.assertIn("Kara", self.mod._staged)
         self.assertNotIn("Tom", self.mod._staged)
+
+    def test_dice_request_client_contract_does_not_hijack_tab(self):
+        source = (REPO / "display" / "templates" / "index.html").read_text()
+        match = re.search(
+            r"function _applyDiceRequest\(req\) \{(?P<body>.*?)\n  \}\n  window\._onDiceRequest",
+            source, re.DOTALL)
+        self.assertIsNotNone(match, "_applyDiceRequest must remain extractable")
+        body = match.group("body")
+        self.assertNotIn("_setActiveTab('roll')", body)
+        self.assertIn("showDiceRequestBadge(req)", body)
+
 
 if __name__ == "__main__":
     unittest.main()

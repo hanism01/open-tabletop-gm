@@ -2409,8 +2409,10 @@ def get_character_sheet(character):
         return "Bad character name", 400
     with _stats_lock:
         known = {p["name"] for p in _current_stats.get("players", [])}
-    if not _char_ok(character, known):
-        return "Forbidden", 403
+    # This route deliberately does not use _char_ok: its "Everybody" alias is
+    # valid for action staging, but never names a readable character sheet.
+    if character not in known:
+        return f"No sheet found for '{character}'", 404
     safe = character
 
     try:
