@@ -131,6 +131,73 @@ blocked or broken third-party images. `art hide` removes the active image.
 - Tests cover DeviantArt query construction, result normalization, campaign persistence
   and recall, authenticated display pushes/SSE replay, and malicious URL rejection.
 
+## 5. Table View — large-text shared-screen mode
+**Issue:** the shared web display is too small to read comfortably from across a room.
+Add a Table View mode for TV/projector use, keeping the existing atmospheric presentation
+while making narration the primary visual element.
+
+**Approved direction:** **B · Inline Scene Card.** Table View uses substantially larger
+narration text in the central reading area. When the GM shows scene art, render it as a
+bounded inline card between narration blocks with an image, caption, creator attribution,
+and explicit source link. It scrolls with narration rather than becoming a modal, floating
+overlay, or permanent sidebar.
+
+**Out of scope:** a persistent art sidebar (it makes narration too narrow), a fullscreen
+art modal (it hides the scene text), and a phone-only interpretation of the mode.
+
+**Acceptance criteria:**
+- A clearly named Table View toggle/mode is available on the shared desktop display and
+  persists per browser.
+- Default Table View narration is legible at room distance: larger type, generous line
+  height, and a restrained line length without sacrificing contrast.
+- The existing party rail and bottom Party Input stay visible and usable; upper-right
+  controls remain reachable.
+- Scene art appears inline in the central narration flow, never covering GM text or fixed
+  controls, and uses a bounded `object-fit: contain` presentation.
+- The mobile layout remains responsive: no permanent side rail; art stays in flow above
+  narration and the persistent composer.
+- The mode respects existing text-size preferences and does not introduce page-level zoom
+  or break sheet/dice drawers.
+
+## 6. Fork documentation audit — compare against parent `open-tabletop-gm`
+**Ask:** produce a complete, maintainable explanation of how this fork differs from its
+parent repository, [`Bobby-Gray/open-tabletop-gm`](https://github.com/Bobby-Gray/open-tabletop-gm).
+This is the upstream comparison baseline. Do not use `claude-dnd-skill` as the fork-diff
+baseline; it is a related Claude-specific ancestor, not this repository's configured
+parent remote.
+
+**Scope:** audit every user-, contributor-, and GM-facing document in the repository.
+Document differences that affect installation, configuration, commands, security,
+campaign data, display/remote play, systems, model support, and GM operating behavior.
+Create one canonical “Differences from parent upstream” index, then link to focused
+documentation rather than duplicating entire guides.
+
+**Must cover:**
+- LLM-agnostic operation and any supported agent/model setup differences.
+- Remote-play authentication, Cloudflare Tunnel guidance, player identity, and GM-secret
+  behavior.
+- Campaign art: DeviantArt-first DuckDuckGo Lite search, campaign-local `art.json`,
+  attribution/source retention, GM-LLM CLI workflow, inline display behavior, and the
+  explicit exclusion of GenAI, downloads, proxies, and rehosting.
+- GM workflow/prompt rules, including player-safe narration before **every** tool call,
+  granular player agency, player-owned PC rolls, spoiler boundaries, and durable-state
+  recording.
+- System-module, display, and data-path differences that affect porting or contribution.
+
+**Acceptance criteria:**
+- The documentation names `Bobby-Gray/open-tabletop-gm` as the parent comparison target
+  and gives its remote/URL; terminology is consistent across README, CHANGELOG,
+  CONTRIBUTING, SKILL files, docs, and command references.
+- A contributor can identify every intentional fork divergence, its rationale, affected
+  files/workflow, and whether it is suitable to propose upstream.
+- User documentation describes only implemented behavior; commands and security claims
+  are verified against code and tests.
+- A repeatable documentation-audit checklist or script detects stale parent references,
+  Claude-only assumptions, missing command documentation, and undocumented new top-level
+  scripts/features.
+- The task updates release notes and versioning guidance so downstream users can assess
+  upgrade and compatibility impact.
+
 ---
 
 ## Cross-cutting notes / flags (from the SME pass)
