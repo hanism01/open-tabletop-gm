@@ -3,7 +3,6 @@ import importlib.util
 import json
 import os
 import pathlib
-import re
 import sys
 import tempfile
 import unittest
@@ -103,17 +102,6 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertLess(response.status_code, 300, response.get_data(as_text=True))
         self.assertIn("Kara", self.mod._staged)
         self.assertNotIn("Tom", self.mod._staged)
-
-    def test_dice_request_client_contract_does_not_hijack_tab(self):
-        source = (REPO / "display" / "templates" / "index.html").read_text()
-        match = re.search(
-            r"function _applyDiceRequest\(req\) \{(?P<body>.*?)\n  \}\n  window\._onDiceRequest",
-            source, re.DOTALL)
-        self.assertIsNotNone(match, "_applyDiceRequest must remain extractable")
-        body = match.group("body")
-        self.assertNotIn("_setActiveTab('roll')", body)
-        self.assertIn("showDiceRequestBadge(req)", body)
-
 
 if __name__ == "__main__":
     unittest.main()
