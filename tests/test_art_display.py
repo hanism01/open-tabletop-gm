@@ -123,6 +123,8 @@ class ArtDisplayTests(unittest.TestCase):
             ("image_url", "https://127.0.0.1/art.jpg"),
             ("source_url", "https://user:pass@example.com/art"),
             ("image_url", "http://images.example.com/art.jpg"),
+            ("image_url", "https://127.0.0.1.sslip.io/art.jpg"),
+            ("source_url", "https://10.0.0.1.sslip.io/art"),
         ):
             with self.subTest(field=field, value=value):
                 payload = {"action": "show", **VALID_ART, field: value}

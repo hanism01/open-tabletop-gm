@@ -249,7 +249,9 @@ def _validate_art_url(value: object) -> str:
         raise ValueError("URL credentials are not allowed")
 
     host = hostname.rstrip(".").lower()
-    if host == "localhost" or host.endswith(".localhost") or host == "nip.io" or host.endswith(".nip.io"):
+    if (host == "localhost" or host.endswith(".localhost")
+            or host == "nip.io" or host.endswith(".nip.io")
+            or host == "sslip.io" or host.endswith(".sslip.io")):
         raise ValueError("Local URLs are not allowed")
     if _ART_NUMERIC_IP_HOST.fullmatch(host):
         raise ValueError("Numeric IP address forms are not allowed")
