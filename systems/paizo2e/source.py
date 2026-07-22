@@ -139,7 +139,11 @@ def _candidate_members(archive: ZipFile, pack_root: str) -> list[tuple[str, str]
     for info in archive.infolist():
         member = info.filename
         path = member if member.startswith(root) else member.partition("/")[2]
-        if not path.startswith(root) or not path.lower().endswith((".yaml", ".yml", ".json")):
+        if (
+            not path.startswith(root)
+            or path.rsplit("/", 1)[-1] == "_folders.json"
+            or not path.lower().endswith((".yaml", ".yml", ".json"))
+        ):
             continue
         candidates.append((member, path))
     return candidates

@@ -48,6 +48,7 @@ class SourceContractTests(unittest.TestCase):
         spec = SourceSpec("pf2e", "packs/pf2e")
         archive = self.archive({
             "pf2e-resolved-sha/packs/pf2e/actions/stride.yaml": "name: Stride\ntype: action\n",
+            "pf2e-resolved-sha/packs/pf2e/actions/_folders.json": "[]",
             "pf2e-resolved-sha/packs/pf2e/spells/fireball.json": "{\"name\": \"Fireball\", \"type\": \"spell\"}",
             "pf2e-resolved-sha/packs/pf2e/actions/logo.webp": "media",
             "pf2e-resolved-sha/packs/pf2e/actions/readme.md": "readme",
