@@ -12,12 +12,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 from zipfile import BadZipFile, ZipFile
+import zlib
 
 
 GITHUB_API = "https://api.github.com"
 GITHUB_CODELOAD = "https://codeload.github.com"
 USER_AGENT = "ttrpg-skill-foundry-source/1.0"
 HTTP_TIMEOUT_SECONDS = 30
+# These limits keep a corrupted or unexpectedly large upstream archive bounded.
+MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+MAX_MEMBER_BYTES = 5 * 1024 * 1024
+MAX_SELECTED_BYTES = 50 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -70,12 +75,21 @@ def write_dataset(path: str | Path, dataset: dict) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def needs_rebuild(path: str | Path, sha: str) -> bool:
-    """Return whether *path* is absent, unreadable, or from another source SHA."""
+def needs_rebuild(path: str | Path, spec: SourceSpec, sha: str) -> bool:
+    """Return whether *path* is absent or lacks the exact expected provenance."""
     try:
         with Path(path).open(encoding="utf-8") as handle:
             dataset = json.load(handle)
-        return dataset["_meta"]["source"]["sha"] != sha
+        metadata = dataset["_meta"]
+        origin = metadata["source"]
+        return not (
+            metadata["schema_version"] == 1
+            and metadata["system"] == spec.system
+            and origin["repo"] == spec.repo
+            and origin["ref"] == spec.ref
+            and origin["sha"] == sha
+            and origin["pack_root"] == spec.pack_root
+        )
     except (OSError, ValueError, KeyError, TypeError):
         return True
 
@@ -127,15 +141,21 @@ def source_archive(spec: SourceSpec, sha: str) -> ZipFile:
     )
     try:
         with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-            return ZipFile(BytesIO(response.read()))
+            length = response.headers.get("Content-Length")
+            if length is not None and int(length) > MAX_ARCHIVE_BYTES:
+                raise RuntimeError(f"Source archive exceeds {MAX_ARCHIVE_BYTES} byte limit")
+            payload = response.read(MAX_ARCHIVE_BYTES + 1)
+            if len(payload) > MAX_ARCHIVE_BYTES:
+                raise RuntimeError(f"Source archive exceeds {MAX_ARCHIVE_BYTES} byte limit")
+            return ZipFile(BytesIO(payload))
     except (HTTPError, URLError, OSError, BadZipFile) as exc:
         raise RuntimeError(f"GitHub source archive request failed for {sha}: {exc}") from exc
 
 
-def _candidate_members(archive: ZipFile, pack_root: str) -> list[tuple[str, str]]:
+def _candidate_members(archive: ZipFile, pack_root: str) -> list[tuple[str, str, int]]:
     """Return (archive member, repository path) pairs for candidate documents."""
     root = pack_root.strip("/") + "/"
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str, int]] = []
     for info in archive.infolist():
         member = info.filename
         path = member if member.startswith(root) else member.partition("/")[2]
@@ -145,14 +165,14 @@ def _candidate_members(archive: ZipFile, pack_root: str) -> list[tuple[str, str]
             or not path.lower().endswith((".yaml", ".yml", ".json"))
         ):
             continue
-        candidates.append((member, path))
+        candidates.append((member, path, info.file_size))
     return candidates
 
 
 def build_dataset(spec: SourceSpec, output_path: str | Path, force: bool = False) -> bool:
     """Build a normalized dataset, replacing its output only after full success."""
     sha = resolve_ref(spec)
-    if not force and not needs_rebuild(output_path, sha):
+    if not force and not needs_rebuild(output_path, spec, sha):
         print(f"{spec.system} dataset is up to date.")
         return False
 
@@ -161,19 +181,30 @@ def build_dataset(spec: SourceSpec, output_path: str | Path, force: bool = False
 
     records: dict[str, list[dict[str, object]]] = {}
     with source_archive(spec, sha) as archive:
-        for member, path in _candidate_members(archive, spec.pack_root):
+        candidates = _candidate_members(archive, spec.pack_root)
+        if not candidates:
+            raise ValueError(f"No candidate documents found under {spec.pack_root}")
+        selected_bytes = 0
+        for member, path, member_size in candidates:
             category = pack_category(path)
             if category is None:
                 continue
+            if member_size > MAX_MEMBER_BYTES:
+                raise ValueError(f"Source member {path} exceeds size limit")
+            selected_bytes += member_size
+            if selected_bytes > MAX_SELECTED_BYTES:
+                raise ValueError("Selected source documents exceed size limit")
             try:
                 raw_text = archive.read(member).decode("utf-8")
                 record = normalize_document(raw_text, path, category)
-            except (OSError, UnicodeDecodeError, ValueError) as exc:
+            except (BadZipFile, EOFError, OSError, RuntimeError, UnicodeDecodeError, ValueError, zlib.error) as exc:
                 raise ValueError(f"Malformed source document {path}: {exc}") from exc
             if record is not None:
                 records.setdefault(category, []).append(record)
 
     ordered_records = {category: records[category] for category in sorted(records)}
+    if not ordered_records:
+        raise ValueError(f"No usable records found under {spec.pack_root}")
     counts = {category: len(records) for category, records in ordered_records.items()}
     dataset = {"_meta": dataset_metadata(spec, sha, counts), **ordered_records}
     write_dataset(output_path, dataset)

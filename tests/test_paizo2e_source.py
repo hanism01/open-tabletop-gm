@@ -6,9 +6,10 @@ from pathlib import Path
 from contextlib import redirect_stdout
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
-from zipfile import ZipFile
+from unittest.mock import MagicMock, patch
+from zipfile import BadZipFile, ZipFile
 
 from systems.paizo2e import source
 from systems.paizo2e.source import (
@@ -32,17 +33,36 @@ class SourceContractTests(unittest.TestCase):
     def test_needs_rebuild_for_missing_changed_and_matching_source_sha(self):
         with TemporaryDirectory() as directory:
             out = Path(directory) / "dataset.json"
-            self.assertTrue(needs_rebuild(out, "new-sha"))
+            spec = SourceSpec("pf2e", "packs/pf2e")
+            self.assertTrue(needs_rebuild(out, spec, "new-sha"))
 
             write_dataset(out, {"_meta": dataset_metadata(
-                SourceSpec("pf2e", "packs/pf2e"), "old-sha", {}
+                spec, "old-sha", {}
             )})
-            self.assertTrue(needs_rebuild(out, "new-sha"))
+            self.assertTrue(needs_rebuild(out, spec, "new-sha"))
 
             write_dataset(out, {"_meta": dataset_metadata(
-                SourceSpec("pf2e", "packs/pf2e"), "new-sha", {}
+                spec, "new-sha", {}
             )})
-            self.assertFalse(needs_rebuild(out, "new-sha"))
+            self.assertFalse(needs_rebuild(out, spec, "new-sha"))
+
+    def test_needs_rebuild_rejects_metadata_for_another_source_identity(self):
+        spec = SourceSpec("sf2e", "packs/sf2e")
+        with TemporaryDirectory() as directory:
+            out = Path(directory) / "dataset.json"
+            for field, value in (
+                ("schema_version", 2),
+                ("system", "pf2e"),
+                ("repo", "elsewhere/repo"),
+                ("ref", "different-ref"),
+                ("pack_root", "packs/pf2e"),
+            ):
+                meta = dataset_metadata(spec, "sha", {})
+                target = meta if field in {"schema_version", "system"} else meta["source"]
+                target[field] = value
+                write_dataset(out, {"_meta": meta})
+                with self.subTest(field=field):
+                    self.assertTrue(needs_rebuild(out, spec, "sha"))
 
     def test_build_dataset_selects_candidate_documents_and_writes_metadata(self):
         spec = SourceSpec("pf2e", "packs/pf2e")
@@ -126,6 +146,82 @@ class SourceContractTests(unittest.TestCase):
             ):
                 self.assertTrue(build_dataset(spec, out, force=True))
             fetch.assert_called_once()
+
+    def test_build_dataset_rejects_missing_root_or_empty_normalization(self):
+        spec = SourceSpec("pf2e", "packs/pf2e")
+        scenarios = {
+            "missing root": {"repo/packs/sf2e/actions/stride.yaml": "name: Stride"},
+            "unsupported pack": {"repo/packs/pf2e/unsupported/item.yaml": "name: Item"},
+            "nameless records": {"repo/packs/pf2e/actions/empty.yaml": "type: action"},
+        }
+        for name, members in scenarios.items():
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                out = Path(directory) / "dataset.json"
+                old_bytes = b'{"old":true}\n'
+                out.write_bytes(old_bytes)
+                with (
+                    patch.object(source, "resolve_ref", return_value="sha"),
+                    patch.object(source, "source_archive", return_value=self.archive(members)),
+                ):
+                    with self.assertRaisesRegex(ValueError, "(?i)no usable records|no candidate"):
+                        build_dataset(spec, out)
+                self.assertEqual(out.read_bytes(), old_bytes)
+
+    def test_build_dataset_enforces_member_and_cumulative_size_limits(self):
+        spec = SourceSpec("pf2e", "packs/pf2e")
+        scenarios = (
+            ({"repo/packs/pf2e/actions/stride.yaml": "name: Stride"}, 4, 100),
+            ({
+                "repo/packs/pf2e/actions/stride.yaml": "name: Stride",
+                "repo/packs/pf2e/actions/step.yaml": "name: Step",
+            }, 100, 20),
+        )
+        for members, member_limit, total_limit in scenarios:
+            with self.subTest(member_limit=member_limit, total_limit=total_limit), TemporaryDirectory() as directory:
+                out = Path(directory) / "dataset.json"
+                old_bytes = b'{"old":true}\n'
+                out.write_bytes(old_bytes)
+                with (
+                    patch.object(source, "resolve_ref", return_value="sha"),
+                    patch.object(source, "source_archive", return_value=self.archive(members)),
+                    patch.object(source, "MAX_MEMBER_BYTES", member_limit),
+                    patch.object(source, "MAX_SELECTED_BYTES", total_limit),
+                ):
+                    with self.assertRaisesRegex(ValueError, "size limit"):
+                        build_dataset(spec, out)
+                self.assertEqual(out.read_bytes(), old_bytes)
+
+    def test_build_dataset_wraps_member_read_errors_with_source_path(self):
+        spec = SourceSpec("pf2e", "packs/pf2e")
+        archive = MagicMock()
+        archive.__enter__.return_value = archive
+        archive.infolist.return_value = [
+            SimpleNamespace(filename="repo/packs/pf2e/actions/stride.yaml", file_size=10),
+        ]
+        archive.read.side_effect = BadZipFile("bad crc")
+        with TemporaryDirectory() as directory:
+            out = Path(directory) / "dataset.json"
+            old_bytes = b'{"old":true}\n'
+            out.write_bytes(old_bytes)
+            with (
+                patch.object(source, "resolve_ref", return_value="sha"),
+                patch.object(source, "source_archive", return_value=archive),
+            ):
+                with self.assertRaisesRegex(ValueError, "packs/pf2e/actions/stride.yaml"):
+                    build_dataset(spec, out)
+            self.assertEqual(out.read_bytes(), old_bytes)
+
+    def test_source_archive_rejects_oversized_download_before_reading(self):
+        response = MagicMock()
+        response.headers = {"Content-Length": "5"}
+        response.__enter__.return_value = response
+        with (
+            patch.object(source, "MAX_ARCHIVE_BYTES", 4),
+            patch.object(source, "urlopen", return_value=response),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exceeds"):
+                source.source_archive(SourceSpec("pf2e", "packs/pf2e"), "sha")
+        response.read.assert_not_called()
 
     def test_source_spec_uses_the_split_v14_foundry_pack_roots(self):
         pf2e = SourceSpec("pf2e", "packs/pf2e")

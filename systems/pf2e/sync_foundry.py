@@ -20,7 +20,7 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="report whether a rebuild is needed")
     args = parser.parse_args()
     try:
-        stale = needs_rebuild(OUTPUT_PATH, resolve_ref(SPEC))
+        stale = needs_rebuild(OUTPUT_PATH, SPEC, resolve_ref(SPEC))
     except Exception:
         if args.check:
             print("Unverifiable.")
