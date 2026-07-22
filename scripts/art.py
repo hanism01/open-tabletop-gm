@@ -8,6 +8,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -15,6 +17,7 @@ from urllib.request import Request, urlopen
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts import paths
+from display import send as display_send
 
 
 ART_KINDS = {"place", "npc", "creature"}
@@ -447,8 +450,31 @@ def _load_search_cache(campaign: str) -> list[dict[str, str]]:
 
 
 def post_display_art(payload: dict[str, str]) -> None:
-    """Post an art display payload. The display endpoint is intentionally pending."""
-    del payload
+    """Send art state to the optional authenticated local display service."""
+    data = {"action": "hide"} if payload.get("action") == "hide" else {"action": "show", **payload}
+    headers = {"Content-Type": "application/json"}
+    token = display_send._read_token()
+    if token:
+        headers["X-GM-Secret"] = token
+    request = urllib.request.Request(
+        f"{display_send._SCHEME}://localhost:5001/art",
+        data=json.dumps(data).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=display_send.TIMEOUT, context=display_send._SSL_CTX
+        ) as response:
+            status = getattr(response, "status", 200)
+            if 200 <= status < 300:
+                return
+            raise ArtValidationError(f"display art POST failed with HTTP {status}")
+    except urllib.error.HTTPError as error:
+        raise ArtValidationError(f"display art POST failed with HTTP {error.code}") from error
+    except (urllib.error.URLError, ConnectionError, ConnectionRefusedError):
+        # The display is optional; a stopped local server must not block GM commands.
+        return
 
 
 def _display_payload(record: dict[str, Any]) -> dict[str, str]:

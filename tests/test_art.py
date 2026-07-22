@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -122,7 +123,7 @@ class ArtCommandTests(unittest.TestCase):
 
         def run(argv):
             output = StringIO()
-            with redirect_stdout(output):
+            with patch("scripts.art.post_display_art"), redirect_stdout(output):
                 self.assertEqual(art.main(argv), 0)
             return json.loads(output.getvalue())
 
@@ -183,6 +184,68 @@ class ArtCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [])
+
+
+class ArtDisplayPostTests(unittest.TestCase):
+    class _Response:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *unused):
+            return False
+
+    class _ErrorResponse(_Response):
+        status = 500
+
+    def test_posts_art_json_with_display_authentication(self):
+        payload = {
+            "title": "Blackwater Keep", "category": "place", "kind": "place",
+            "image_url": "https://images.example.com/keep.jpg",
+            "source_url": "https://artist.example.com/keep", "creator": "A. Artist",
+            "alt": "Blackwater Keep",
+        }
+        with patch("scripts.art.display_send._read_token", return_value="gm-secret"), patch(
+            "scripts.art.urllib.request.urlopen", return_value=self._Response()
+        ) as open_request:
+            art.post_display_art(payload)
+
+        request = open_request.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:5001/art")
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        self.assertEqual(request.get_header("X-gm-secret"), "gm-secret")
+        self.assertEqual(json.loads(request.data), {"action": "show", **payload})
+
+    def test_offline_display_does_not_make_one_off_show_fail(self):
+        offline = urllib.error.URLError(ConnectionRefusedError("Connection refused"))
+        with patch("scripts.art.display_send._read_token", return_value=""), patch(
+            "scripts.art.urllib.request.urlopen", side_effect=offline
+        ):
+            self.assertEqual(
+                art.main([
+                    "show", "--url", "https://images.example.com/keep.jpg",
+                    "--source-url", "https://artist.example.com/keep", "--title", "Blackwater Keep",
+                ]),
+                0,
+            )
+
+    def test_http_error_from_display_surfaces_as_validation_error(self):
+        error = urllib.error.HTTPError("http://localhost:5001/art", 500, "server error", {}, None)
+        with patch("scripts.art.display_send._read_token", return_value=""), patch(
+            "scripts.art.urllib.request.urlopen", side_effect=error
+        ):
+            with self.assertRaisesRegex(ArtValidationError, "display.*HTTP 500"):
+                art.post_display_art({"action": "hide"})
+        error.close()
+
+    def test_non_2xx_display_response_surfaces_as_validation_error(self):
+        with patch("scripts.art.display_send._read_token", return_value=""), patch(
+            "scripts.art.urllib.request.urlopen", return_value=self._ErrorResponse()
+        ):
+            with self.assertRaisesRegex(ArtValidationError, "display.*HTTP 500"):
+                art.post_display_art({"action": "hide"})
 
 
 class CandidateNormalizationTests(unittest.TestCase):
