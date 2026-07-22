@@ -80,6 +80,13 @@ system:
         )
         self.assertEqual(strip_foundry_markup(text), "Strike & Step\n\nR&D")
 
+    def test_preserves_spaced_uuid_and_damage_labels(self):
+        text = "@UUID[Compendium.pf2e.Item.abc] {A Label} @Damage[2d6[fire]] {Burn}"
+        self.assertEqual(strip_foundry_markup(text), "A Label Burn")
+
+    def test_decodes_html_entities_exactly_once(self):
+        self.assertEqual(strip_foundry_markup("&amp;lt;b&amp;gt;"), "&lt;b&gt;")
+
     def test_rejects_nameless_and_non_mapping_yaml(self):
         self.assertIsNone(normalize_document("type: action", "packs/pf2e/actions/nope.yaml", "actions"))
         self.assertIsNone(normalize_document("- name: Not a document", "packs/pf2e/actions/nope.yaml", "actions"))

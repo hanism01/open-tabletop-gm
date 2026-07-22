@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from html import unescape
 from html.parser import HTMLParser
 from math import isfinite
 
@@ -95,7 +94,7 @@ def strip_foundry_markup(value: str) -> str:
     extractor = _FoundryHTMLTextExtractor()
     extractor.feed(text)
     extractor.close()
-    text = unescape(extractor.text())
+    text = extractor.text()
     text = "\n".join(line.strip() for line in text.splitlines())
     return _BLANK_LINES.sub("\n\n", text).strip()
 
@@ -126,12 +125,14 @@ def _strip_foundry_tokens(value: str) -> str:
         token_name = value[index + 1 : token_end]
         index = content_end
         label = ""
+        while index < len(value) and value[index].isspace():
+            index += 1
         if index < len(value) and value[index] == "{":
             label_end = _balanced_end(value, index, "{", "}")
             if label_end is not None:
                 label = value[index + 1 : label_end - 1]
                 index = label_end
-        if token_name in {"UUID", "Check"}:
+        if token_name in {"UUID", "Check"} or label:
             output.append(label)
     return "".join(output)
 
