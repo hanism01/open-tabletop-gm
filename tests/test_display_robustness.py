@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,6 +27,34 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DISPLAY = REPO / "display"
+
+
+class ConditionClassMapTest(unittest.TestCase):
+    """Manifest condition classes support conditions carrying a numeric value."""
+
+    def test_valued_condition_uses_base_condition_severity(self):
+        source = (DISPLAY / "templates" / "index.html").read_text()
+        start = source.index("function _wTagList")
+        end = source.index("\nfunction _wTagSingle", start)
+        function = source[start:end]
+        script = """
+const document = {
+  createElement: () => ({children: [], dataset: {}, appendChild(child) { this.children.push(child); }})
+};
+const _bind = (player, bind) => player[bind];
+""" + function + """
+const card = {children: [], appendChild(child) { this.children.push(child); }};
+_wTagList(card, {conditions: ['dying 2', 'frightened 1', 'quickened']}, {
+  bind: 'conditions',
+  class_map: {dying: 'danger', frightened: 'warn', quickened: 'buff'}
+});
+const classes = card.children[0].children.map(pill => pill.className);
+if (JSON.stringify(classes) !== JSON.stringify([
+  'sb-condition-pill danger', 'sb-condition-pill warn', 'sb-condition-pill buff'
+])) process.exit(1);
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 def _load_module(path: Path, name: str):

@@ -4622,8 +4622,13 @@ function _wTagList(card, p, w) {
   el.className = 'sb-conditions';
   el.dataset.role = w.role || 'conditions';   // always appended (placeholder lets merges clear it)
   items.forEach(c => {
+    const condition = String(c).trim().toLowerCase();
+    // Conditions with values (for example, "dying 2" or "frightened 1")
+    // inherit the manifest class for their named base condition.
+    const baseCondition = Object.keys(map).find(key => condition.startsWith(key + ' '));
+    const className = map[condition] || (baseCondition && map[baseCondition]) || 'info';
     const pill = document.createElement('span');
-    pill.className = `sb-condition-pill ${map[String(c).toLowerCase()] || 'info'}`;
+    pill.className = `sb-condition-pill ${className}`;
     pill.textContent = c;
     el.appendChild(pill);
   });

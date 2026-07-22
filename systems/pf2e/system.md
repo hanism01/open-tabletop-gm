@@ -67,7 +67,7 @@ The six attributes are **Strength (STR), Dexterity (DEX), Constitution (CON), In
 
 Damage reduces current HP. Healing restores HP up to the character's maximum unless an effect says otherwise. Resistance reduces matching damage, weakness increases matching damage, and immunity prevents matching damage; apply the specific rule for the effect before reducing HP.
 
-Temporary HP is a separate buffer: damage is taken from temporary HP first, does not stack with other temporary HP, and the larger amount replaces a smaller amount. At 0 HP, follow the dying rules below rather than allowing the character to keep acting normally.
+Temporary HP is a separate buffer: damage is taken from temporary HP first and does not stack with other temporary HP. When a creature receives temporary HP while it already has temporary HP with a different duration, it chooses whether to keep the existing temporary HP and duration or take the new temporary HP and duration. At 0 HP, follow the dying rules below rather than allowing the character to keep acting normally.
 
 Persistent damage is a condition. At the end of each affected creature's turn, apply the persistent damage, then roll the listed flat check to end it; assistance and an appropriate action can improve the recovery chance when the rules allow.
 
@@ -87,7 +87,14 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 **Daily preparations:** After about 8 hours of rest, prepare spells, regain Focus Points through the relevant refocus activity when eligible, and refresh abilities that recover during daily preparations. A full night's rest restores HP equal to CON modifier (minimum 1) multiplied by level, subject to the campaign's circumstances.
 
-**Treat Wounds:** A trained Medicine user can spend 10 minutes to attempt a Medicine check against the chosen Treat Wounds DC. On success, the target regains HP and its wounded condition is removed; on a critical success it regains double HP and removes wounded. A creature is normally immune to Treat Wounds from **all healers** for 1 hour, subject to feats such as Continual Recovery.
+**Treat Wounds:** A trained Medicine user can spend 10 minutes to attempt a Medicine check against the chosen Treat Wounds DC. On success, the target regains HP and its wounded condition is removed; on a critical success it removes wounded and regains the following HP. A creature is normally immune to Treat Wounds from **all healers** for 1 hour, subject to feats such as Continual Recovery.
+
+| Medicine proficiency and DC | Success healing | Critical-success healing |
+|---|---|---|
+| Trained, DC 15 | 2d8 | 4d8 |
+| Expert, DC 20 | 2d8 + 10 | 4d8 + 10 |
+| Master, DC 30 | 2d8 + 30 | 4d8 + 30 |
+| Legendary, DC 40 | 2d8 + 50 | 4d8 + 50 |
 
 **Long-term recovery:** Use the Medicine activities, recovery checks, and downtime rules appropriate to the injury. `calendar.py rest short` can mark a 1-hour pause; `calendar.py rest long` can mark an 8-hour rest. Do not treat either command as automatic full healing.
 
@@ -95,7 +102,9 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 ## Incapacitation and Death
 
-At 0 HP, a creature gains **dying 1**; if the effect was a critical success against it, it gains dying 2 instead. Add its wounded value to that dying value. A creature with dying 4 dies (dying 5 if it has the Diehard feat). If nonlethal damage reduced the creature to 0 HP, it becomes unconscious at 0 HP instead of gaining dying.
+When a **PC, animal companion, or other significant creature** reaches 0 HP, it gains **dying 1**. It gains dying 2 instead if an attacker critically succeeded against it or it was reduced to 0 HP by a **critical failure on its own check**. Add its wounded value to that dying value. A creature with dying 4 dies (dying 5 if it has the Diehard feat). Ordinary NPCs and monsters generally die at 0 HP instead of using dying unless the GM marks them significant.
+
+If nonlethal damage reduces a creature to 0 HP, it becomes unconscious at 0 HP instead of gaining dying. This nonlethal knockout is separate from the dying and wounded procedure.
 
 When a creature gains dying, move its initiative position to directly before the turn during which it was reduced to 0 HP. This makes its recovery check occur before the source of the knockout acts again in subsequent rounds.
 
@@ -108,7 +117,7 @@ At the start of each turn while dying, attempt a recovery check: `d20` against D
 | Failure | Increase dying by 1 |
 | Critical failure | Increase dying by 2 |
 
-Whenever a creature loses the dying condition, it gains **wounded 1**, or increases its wounded value by 1 if it already had it. Receiving healing while dying restores HP and removes dying; being reduced to 0 HP again becomes more dangerous because wounded is added to the new dying value. A creature at 0 HP can use Heroic Recovery as described above.
+Whenever a creature loses the dying condition, it gains **wounded 1**, or increases its wounded value by 1 if it already had it. Receiving healing while dying restores HP and removes dying; being reduced to 0 HP again becomes more dangerous because wounded is added to the new dying value. When Heroic Recovery prevents a dying increase, it removes dying and does **not** add or increase wounded.
 
 ---
 
