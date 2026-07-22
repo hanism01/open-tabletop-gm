@@ -25,6 +25,38 @@ VALID_ART = {
 }
 
 
+class BrowserArtDisplayContractTests(unittest.TestCase):
+    """Static contracts for the safe, inline browser scene-art renderer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.template = (REPO / "display" / "templates" / "index.html").read_text()
+
+    def test_scene_art_is_an_inline_semantic_figure_not_an_overlay(self):
+        self.assertIn("scene-art-panel", self.template)
+        self.assertIn("document.createElement('figure')", self.template)
+        self.assertIn("document.createElement('figcaption')", self.template)
+        self.assertIn("textContent.appendChild(panel)", self.template)
+        self.assertIn("max-width: min(62vw, 900px)", self.template)
+        self.assertNotIn("#scene-art-panel { position: fixed", self.template)
+
+    def test_scene_art_renderer_uses_safe_dom_and_source_link_safety(self):
+        start = self.template.index("function renderSceneArt(")
+        end = self.template.index("let charQueue", start)
+        renderer = self.template[start:end]
+        self.assertNotIn("innerHTML", renderer)
+        self.assertIn("sourceLink.rel = 'noopener noreferrer'", renderer)
+        self.assertIn("sourceLink.textContent", renderer)
+        self.assertIn("image.addEventListener('error'", renderer)
+
+    def test_sse_art_open_replace_and_clear_are_handled(self):
+        self.assertIn("if (payload.art !== undefined)", self.template)
+        self.assertIn("renderSceneArt(payload.art)", self.template)
+        self.assertIn("clearSceneArt()", self.template)
+        self.assertIn("scene-art-toggle", self.template)
+        self.assertIn("aria-live", self.template)
+
+
 def _import_app():
     spec = importlib.util.spec_from_file_location(
         "gm_art_display_app", str(REPO / "display" / "gm-display-app.py")
