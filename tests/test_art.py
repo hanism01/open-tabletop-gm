@@ -2,6 +2,8 @@
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -135,6 +137,41 @@ class ArtCommandTests(unittest.TestCase):
 
         self.assertEqual(post.call_args_list[0].args[0]["title"], "Blackwater Keep")
         self.assertEqual(post.call_args_list[1].args[0], {"action": "hide"})
+
+    def test_saved_record_show_dispatches_a_complete_display_payload(self):
+        save_record(
+            "ashfall",
+            {
+                "id": "keep", "kind": "place", "title": "Blackwater Keep",
+                "image_url": "https://images.example.com/keep.jpg",
+                "source_url": "https://artist.example.com/keep", "creator": "A. Artist",
+            },
+        )
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        with patch("scripts.art.post_display_art") as post, redirect_stdout(StringIO()):
+            self.assertEqual(art.main(["show", "--campaign", "ashfall", "--id", "keep"]), 0)
+
+        self.assertEqual(
+            post.call_args.args[0],
+            {
+                "title": "Blackwater Keep", "category": "place", "kind": "place",
+                "image_url": "https://images.example.com/keep.jpg",
+                "source_url": "https://artist.example.com/keep", "creator": "A. Artist",
+                "alt": "Blackwater Keep",
+            },
+        )
+
+    def test_direct_script_execution_can_import_the_scripts_package(self):
+        environment = {**os.environ, "GM_CAMPAIGN_ROOT": str(self.root)}
+        result = subprocess.run(
+            [sys.executable, "scripts/art.py", "list", "--campaign", "ashfall"],
+            cwd=Path(__file__).parents[1], env=environment, text=True, capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
 
 
 class CandidateNormalizationTests(unittest.TestCase):

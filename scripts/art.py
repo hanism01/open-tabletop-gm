@@ -12,6 +12,8 @@ from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts import paths
 
 
@@ -446,6 +448,28 @@ def post_display_art(payload: dict[str, str]) -> None:
     del payload
 
 
+def _display_payload(record: dict[str, Any]) -> dict[str, str]:
+    """Build a validated, display-ready payload from a saved record or one-off."""
+    title = _normalize_text(record.get("title", ""), "title", MAX_TITLE_LENGTH, required=True)
+    kind = record.get("kind", "")
+    if kind and kind not in ART_KINDS:
+        raise ArtValidationError("Unknown art kind")
+    payload = {
+        "title": title,
+        "category": kind,
+        "kind": kind,
+        "image_url": "",
+        "source_url": "",
+        "creator": _normalize_text(record.get("creator", ""), "creator", MAX_CREATOR_LENGTH),
+        "alt": title,
+    }
+    for field in ("image_url", "source_url"):
+        value = record.get(field, "")
+        if value:
+            payload[field] = validate_public_https_url(value)
+    return payload
+
+
 def _csv_values(value: str | None) -> list[str]:
     return [] if value is None else [item.strip() for item in value.split(",") if item.strip()]
 
@@ -537,9 +561,12 @@ def main(argv: list[str] | None = None) -> int:
                 records = [record for record in list_records(args.campaign) if record["id"] == args.id]
                 if not records:
                     raise ArtValidationError("Art record was not found")
+                post_display_art(_display_payload(records[0]))
                 print(json.dumps(records[0], separators=(",", ":")))
             elif not args.campaign and args.url and args.source_url and args.title:
-                post_display_art({"url": validate_public_https_url(args.url), "source_url": validate_public_https_url(args.source_url), "title": _normalize_text(args.title, "title", MAX_TITLE_LENGTH, required=True)})
+                post_display_art(_display_payload({
+                    "title": args.title, "image_url": args.url, "source_url": args.source_url,
+                }))
             else:
                 raise ArtValidationError("Show requires either --campaign and --id, or --url, --source-url, and --title")
         else:
