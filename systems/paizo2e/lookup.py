@@ -9,12 +9,43 @@ from typing import Any
 
 
 _NORMALIZE = re.compile(r"[^a-z0-9]+")
+_CATEGORY_ALIASES = {
+    "action": "actions",
+    "ancestry": "ancestries",
+    "background": "backgrounds",
+    "class": "classes",
+    "condition": "conditions",
+    "creature": "creatures",
+    "feat": "feats",
+    "hazard": "hazards",
+    "item": "items",
+    "rule": "rules",
+    "spell": "spells",
+    "vehicle": "vehicles",
+}
 
 
 def load_dataset(path: str | Path) -> dict[str, Any]:
     """Load one generated system dataset from *path*."""
-    with Path(path).open(encoding="utf-8") as handle:
-        return json.load(handle)
+    try:
+        with Path(path).open(encoding="utf-8") as handle:
+            dataset = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid JSON") from exc
+    if not isinstance(dataset, dict):
+        raise ValueError("dataset must be a JSON object")
+    metadata = dataset.get("_meta")
+    if not isinstance(metadata, dict):
+        raise ValueError("dataset metadata must be an object")
+    source = metadata.get("source")
+    if not isinstance(source, dict):
+        raise ValueError("dataset source metadata must be an object")
+    if not isinstance(source.get("sha"), str):
+        raise ValueError("dataset source SHA must be a string")
+    for category, records in dataset.items():
+        if category != "_meta" and not isinstance(records, list):
+            raise ValueError(f"dataset category {category!r} must be a list")
+    return dataset
 
 
 def find_records(
@@ -28,10 +59,8 @@ def find_records(
     category_key = category.casefold()
     if category_key == "any":
         categories = [name for name in dataset if name != "_meta"]
-    elif category_key not in dataset and f"{category_key}s" in dataset:
-        categories = [f"{category_key}s"]
     else:
-        categories = [category_key]
+        categories = [_CATEGORY_ALIASES.get(category_key, category_key)]
     records = [
         record
         for name in categories

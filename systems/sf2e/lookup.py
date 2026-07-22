@@ -15,7 +15,8 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from systems.paizo2e.lookup import find_records, format_record, load_dataset
 
 
-DATA_PATH = Path(__file__).with_name("data") / "sf2e_foundry.json"
+DATA_FILE = Path(__file__).with_name("data") / "sf2e_foundry.json"
+DATA_PATH = DATA_FILE
 BUILD_COMMAND = "python3 systems/sf2e/build_foundry.py"
 
 
@@ -26,11 +27,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="show all matching records")
     args = parser.parse_args(argv)
 
-    if not DATA_PATH.is_file():
+    if not DATA_FILE.is_file():
         print(f"Dataset missing. Build it with: {BUILD_COMMAND}")
         return 1
 
-    dataset = load_dataset(DATA_PATH)
+    try:
+        dataset = load_dataset(DATA_FILE)
+    except (OSError, ValueError) as exc:
+        print(f"Dataset error: {exc}")
+        return 1
     limit = None if args.all else 1
     records = find_records(dataset, args.category, args.query, limit=limit)
     if not records:

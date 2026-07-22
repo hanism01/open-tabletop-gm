@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import redirect_stdout
+import io
+import json
 from pathlib import Path
-import subprocess
-import sys
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from systems.paizo2e.lookup import find_records, format_record
+from systems.paizo2e.lookup import find_records, format_record, load_dataset
 
 
 class Paizo2eLookupTests(unittest.TestCase):
@@ -57,6 +60,15 @@ class Paizo2eLookupTests(unittest.TestCase):
 
         self.assertEqual([record["name"] for record in found], ["Fireball"])
 
+    def test_irregular_singular_category_aliases_match_generated_categories(self):
+        dataset = {
+            "classes": [{"name": "Wizard", "source_path": "packs/classes/wizard.yml"}],
+            "ancestries": [{"name": "Human", "source_path": "packs/ancestries/human.yml"}],
+        }
+
+        self.assertEqual([record["name"] for record in find_records(dataset, "class", "wizard")], ["Wizard"])
+        self.assertEqual([record["name"] for record in find_records(dataset, "ancestry", "human")], ["Human"])
+
     def test_format_record_includes_play_relevant_fields_and_provenance(self):
         text = format_record(
             {
@@ -86,17 +98,59 @@ class Paizo2eLookupTests(unittest.TestCase):
         self.assertTrue(str(sf2e_data_path).endswith("sf2e_foundry.json"))
 
     def test_missing_dataset_prints_the_matching_builder_command(self):
-        root = Path(__file__).resolve().parents[1]
-        result = subprocess.run(
-            [sys.executable, "systems/pf2e/lookup.py", "actions", "stride"],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        from systems.pf2e import lookup
 
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout.strip(), "Dataset missing. Build it with: python3 systems/pf2e/build_foundry.py")
+        output = io.StringIO()
+        with TemporaryDirectory() as temporary, patch.object(
+            lookup, "DATA_FILE", Path(temporary) / "missing.json"
+        ), redirect_stdout(output):
+            exit_code = lookup.main(["actions", "stride"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue().strip(), "Dataset missing. Build it with: python3 systems/pf2e/build_foundry.py")
+
+    def test_load_dataset_rejects_invalid_dataset_shapes(self):
+        invalid_datasets = [
+            [],
+            {"_meta": []},
+            {"_meta": {"source": []}},
+            {"_meta": {"source": {"sha": 42}}},
+            {"_meta": {"source": {"sha": "abc"}}, "actions": {}},
+        ]
+
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "dataset.json"
+            for payload in invalid_datasets:
+                with self.subTest(payload=payload):
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        load_dataset(path)
+
+    def test_malformed_dataset_reports_a_concise_cli_error(self):
+        from systems.sf2e import lookup
+
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "malformed.json"
+            path.write_text("{", encoding="utf-8")
+            output = io.StringIO()
+            with patch.object(lookup, "DATA_FILE", path), redirect_stdout(output):
+                exit_code = lookup.main(["actions", "boost"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue().strip(), "Dataset error: invalid JSON")
+
+    def test_wrong_dataset_shape_reports_a_concise_cli_error(self):
+        from systems.pf2e import lookup
+
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "wrong-shape.json"
+            path.write_text("[]", encoding="utf-8")
+            output = io.StringIO()
+            with patch.object(lookup, "DATA_FILE", path), redirect_stdout(output):
+                exit_code = lookup.main(["actions", "stride"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue().strip(), "Dataset error: dataset must be a JSON object")
 
 
 if __name__ == "__main__":
