@@ -8,6 +8,7 @@ Endpoints:
     GET  /                   → serves index.html
     POST /chunk              → receives text chunk from wrapper.py
     POST /stats              → receives character/combat stat updates (merged, persisted)
+    POST /art                → show or hide GM-selected campaign art
     GET  /stream             → SSE stream to browser (text + scene + stats events)
     GET  /ping               → health check
     POST /clear              → wipe text log and broadcast clear event
@@ -21,6 +22,7 @@ Endpoints:
 """
 
 import hmac
+import ipaddress
 import json
 import pathlib
 import os
@@ -32,6 +34,7 @@ import sys
 import threading
 from collections import deque
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 from flask import Flask, Response, request, render_template, jsonify, g, redirect
 from flask_cors import CORS
 
@@ -208,6 +211,10 @@ _PRINTABLE    = re.compile(
 _SHELL_CHARS  = re.compile(r'[$`\\;|&><()\[\]{}!]')
 # Unicode \w covers letters from all scripts above.
 _CHAR_NAME_RE = re.compile(r"^\w[\w '\-]{0,48}\w$|^\w{1,2}$", re.UNICODE)
+_ART_NUMERIC_IP_HOST = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)(?:\.(?:0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$")
+_ART_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_ART_TEXT_LIMITS = {"title": 200, "category": 80, "kind": 80, "creator": 200, "alt": 500}
+_ART_URL_LIMIT = 2_000
 
 
 def _sanitize_input(text: str) -> str:
@@ -224,6 +231,65 @@ def _char_ok(name: str, known: set) -> bool:
     if known and name not in known and name != "Everybody":
         return False
     return True
+
+
+def _validate_art_url(value: object) -> str:
+    """Validate a public HTTPS art URL without fetching or resolving it."""
+    if not isinstance(value, str) or len(value) > _ART_URL_LIMIT:
+        raise ValueError("URL must be a bounded string")
+    try:
+        parts = urlsplit(value.strip())
+        hostname = parts.hostname
+        parts.port  # raises ValueError for malformed ports
+    except ValueError as error:
+        raise ValueError("URL is malformed") from error
+    if parts.scheme.lower() != "https" or not parts.netloc or not hostname:
+        raise ValueError("URL must be absolute HTTPS")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("URL credentials are not allowed")
+
+    host = hostname.rstrip(".").lower()
+    if host == "localhost" or host.endswith(".localhost") or host == "nip.io" or host.endswith(".nip.io"):
+        raise ValueError("Local URLs are not allowed")
+    if _ART_NUMERIC_IP_HOST.fullmatch(host):
+        raise ValueError("Numeric IP address forms are not allowed")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+        except UnicodeError as error:
+            raise ValueError("Hostname is malformed") from error
+        if (len(ascii_host) > 253
+                or any(not _ART_DNS_LABEL.fullmatch(label) for label in ascii_host.split("."))):
+            raise ValueError("Hostname is malformed")
+    else:
+        if not address.is_global:
+            raise ValueError("Non-public IP addresses are not allowed")
+    return urlunsplit((parts.scheme.lower(), parts.netloc, parts.path, parts.query, parts.fragment))
+
+
+def _validate_art_payload(data: object) -> dict:
+    """Return the compact, browser-safe active-art payload or raise ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("Art payload must be an object")
+    payload = {}
+    for field, limit in _ART_TEXT_LIMITS.items():
+        value = data.get(field, "")
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string")
+        value = " ".join(value.split())
+        if len(value) > limit:
+            raise ValueError(f"{field} is too long")
+        if field == "title" and not value:
+            raise ValueError("title cannot be blank")
+        if value:
+            payload[field] = value
+    for field in ("image_url", "source_url"):
+        if field not in data:
+            raise ValueError(f"{field} is required")
+        payload[field] = _validate_art_url(data[field])
+    return payload
 
 
 # ─── Device approval system ───────────────────────────────────────────────────
@@ -396,7 +462,7 @@ CORS(app, origins=sorted(_ALLOWED_ORIGINS))
 # Sole access-control authority. Endpoint sets use Flask endpoint (view function)
 # names, not URL paths. Anything not listed fails closed (403) for non-GM roles.
 _PUBLIC_ENDPOINTS = {"join", "ping", "health", "static"}
-_GM_ENDPOINTS = {"chunk", "stats", "drain_player_input", "dice_request"}
+_GM_ENDPOINTS = {"chunk", "stats", "art", "drain_player_input", "dice_request"}
 _PLAYER_ENDPOINTS = {
     "index", "stream", "srd_lookup", "player_input", "stage_input", "ready_input",
     "unstage_input", "skip_input", "player_dice", "narration_pref", "roll_pref",
@@ -1117,6 +1183,11 @@ _load_tail()
 _current_stats: dict = {}
 _stats_lock = threading.Lock()
 
+# Active GM-selected art is ephemeral session state, replayed to reconnecting
+# clients but deliberately not persisted to the campaign or display filesystem.
+_active_art: Optional[dict] = None
+_active_art_lock = threading.Lock()
+
 
 def _persist_stats() -> None:
     try:
@@ -1487,6 +1558,31 @@ def chunk():
     _persist_tail()
     _broadcast(payload)
     return "", 204
+
+
+@app.route("/art", methods=["POST"])
+def art():
+    """Set or clear the active campaign art shown to every SSE client."""
+    global _active_art
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "art payload must be an object"}), 400
+    action = data.get("action")
+    if action == "hide":
+        with _active_art_lock:
+            _active_art = None
+        _broadcast({"art": None})
+        return "", 204
+    if action != "show":
+        return jsonify({"error": "action must be show or hide"}), 400
+    try:
+        payload = _validate_art_payload(data)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    with _active_art_lock:
+        _active_art = payload
+    _broadcast({"art": payload})
+    return jsonify({"art": payload}), 200
 
 
 @app.route("/stats", methods=["POST"])
@@ -2589,6 +2685,12 @@ def stream():
     with _stats_lock:
         if _current_stats:
             q.put_nowait({"stats": dict(_current_stats)})
+
+    # Active art is sent after stats so reconnecting clients receive the
+    # stable display state in the same order as live art updates expect.
+    with _active_art_lock:
+        if _active_art is not None:
+            q.put_nowait({"art": dict(_active_art)})
 
     # Send current input queue so the pending indicator is accurate on reconnect.
     with _input_lock:
