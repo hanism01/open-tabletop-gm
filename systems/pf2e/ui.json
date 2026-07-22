@@ -33,7 +33,33 @@
         { "label": "Class DC", "bind": "class_dc" }
       ]
     },
-    { "type": "tag_list", "bind": "conditions" },
+    {
+      "type": "tag_list",
+      "bind": "conditions",
+      "class_map": {
+        "dying": "danger",
+        "unconscious": "danger",
+        "doomed": "danger",
+        "persistent damage": "danger",
+        "wounded": "warn",
+        "drained": "warn",
+        "fatigued": "warn",
+        "frightened": "warn",
+        "sickened": "warn",
+        "clumsy": "warn",
+        "enfeebled": "warn",
+        "stupefied": "warn",
+        "slowed": "warn",
+        "grabbed": "info",
+        "restrained": "info",
+        "off-guard": "info",
+        "prone": "info",
+        "concealed": "info",
+        "hidden": "info",
+        "undetected": "info",
+        "quickened": "buff"
+      }
+    },
     { "type": "effects", "bind": "effects" }
   ],
   "sheet": {
@@ -46,7 +72,7 @@
     "stat_grid": {
       "label": "Ability Scores",
       "bind": "ability_scores",
-      "show_modifier": true,
+      "show_modifier": false,
       "stats": [
         { "key": "str", "label": "STR" },
         { "key": "dex", "label": "DEX" },

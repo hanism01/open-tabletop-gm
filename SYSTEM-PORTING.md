@@ -16,7 +16,9 @@ When you run `/gm load <campaign>`, the skill reads both files. Think of `SKILL.
 
 ### System data lifecycle (optional)
 
-Rules data is an optional third layer. If a system ships a `lookup.py` command and a local dataset, use lookup during play for specific spells, actions, items, and conditions; do not invent a data dependency for systems that have none. A companion `sync_srd.py --check` command should be read-only: it reports whether the local dataset is stale. The explicit sync command may then fetch or rebuild data from its documented, license-compatible source. Keep generated data and its source/version metadata inside `systems/<system>/data/`, and keep `system.md` useful even when the dataset is absent.
+Rules data is an optional third layer. If a system ships a `lookup.py` command and a local dataset, use lookup during play for specific spells, actions, items, and conditions; do not invent a data dependency for systems that have none. A companion sync command such as `sync_foundry.py --check` should be read-only: it reports whether the local dataset is stale. The explicit sync command may then fetch or rebuild data from its documented, license-compatible source.
+
+Generated or vendored third-party data belongs under `systems/<system>/data/` and must be ignored by Git; keep only the builder/sync scripts and small source/version metadata that makes a rebuild auditable. Respect the source's license and terms, and keep `system.md` useful when the optional dataset is absent.
 
 ---
 

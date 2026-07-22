@@ -30,7 +30,7 @@ Use the GM's level-based DC table or a published DC when available. For an oppos
 
 ## Ability Scores / Statistics
 
-The six ability scores are **Strength (STR), Dexterity (DEX), Constitution (CON), Intelligence (INT), Wisdom (WIS), and Charisma (CHA)**. Their modifiers are `(score − 10) ÷ 2`, rounded down.
+The six attributes are **Strength (STR), Dexterity (DEX), Constitution (CON), Intelligence (INT), Wisdom (WIS), and Charisma (CHA)**. Remaster characters record the **raw attribute modifiers** (for example, STR `+4`), not legacy 3–18 ability scores. Ability boosts increase a modifier; a flaw decreases it, subject to the character-building rules.
 
 | Stat | Governs |
 |---|---|
@@ -53,7 +53,7 @@ The six ability scores are **Strength (STR), Dexterity (DEX), Constitution (CON)
 | HP / Max HP | Damage reduces current HP; ancestry and class determine the maximum |
 | Hero Points | Usually 0–3; a session begins with 1 unless the GM states otherwise |
 | AC / Speed / Perception / Class DC | Core defensive and exploration statistics |
-| Ability modifiers | The six ability modifiers above |
+| Attribute modifiers | The six raw modifiers above; there are no legacy ability-score values to derive |
 | Proficiencies | Skills, attacks, armor, perception, saves, spellcasting, and class DC |
 | Saves | Fortitude, Reflex, and Will |
 | Focus Points / spell slots | Only for characters with the relevant abilities |
@@ -79,7 +79,7 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 **Range:** 0–3. At the start of a session each PC normally has 1 Hero Point. Award another for heroic, clever, or character-defining play; a PC cannot hold more than 3.
 
-**Tracking:** Spend 1 Hero Point to reroll a check and use the new result. Spend all remaining Hero Points (minimum 1) when you would gain the dying condition to avoid dying: you instead remain at 0 HP, are stabilized, and do not increase wounded. Track class resources—Focus Points, spell slots, reagents, and similar pools—separately on the character sheet.
+**Tracking:** Spend 1 Hero Point to reroll a check and use the new result. Use **Heroic Recovery** by spending all remaining Hero Points (minimum 1) when you would gain dying or your dying value would increase; you avoid death and become stabilized at 0 HP. Track class resources—Focus Points, spell slots, reagents, and similar pools—separately on the character sheet.
 
 ---
 
@@ -87,7 +87,7 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 **Daily preparations:** After about 8 hours of rest, prepare spells, regain Focus Points through the relevant refocus activity when eligible, and refresh abilities that recover during daily preparations. A full night's rest restores HP equal to CON modifier (minimum 1) multiplied by level, subject to the campaign's circumstances.
 
-**Treat Wounds:** A trained Medicine user can spend 10 minutes to attempt a Medicine check against the chosen Treat Wounds DC. On success, the target regains HP; on a critical success it regains double HP. A creature is normally immune to that healer's Treat Wounds for 1 hour, subject to feats such as Continual Recovery.
+**Treat Wounds:** A trained Medicine user can spend 10 minutes to attempt a Medicine check against the chosen Treat Wounds DC. On success, the target regains HP and its wounded condition is removed; on a critical success it regains double HP and removes wounded. A creature is normally immune to Treat Wounds from **all healers** for 1 hour, subject to feats such as Continual Recovery.
 
 **Long-term recovery:** Use the Medicine activities, recovery checks, and downtime rules appropriate to the injury. `calendar.py rest short` can mark a 1-hour pause; `calendar.py rest long` can mark an 8-hour rest. Do not treat either command as automatic full healing.
 
@@ -95,7 +95,9 @@ Persistent damage is a condition. At the end of each affected creature's turn, a
 
 ## Incapacitation and Death
 
-At 0 HP, a creature gains **dying 1**; if the effect was a critical success against it, it gains dying 2 instead. Add its wounded value to that dying value. A creature with dying 4 dies (dying 5 if it has the Diehard feat).
+At 0 HP, a creature gains **dying 1**; if the effect was a critical success against it, it gains dying 2 instead. Add its wounded value to that dying value. A creature with dying 4 dies (dying 5 if it has the Diehard feat). If nonlethal damage reduced the creature to 0 HP, it becomes unconscious at 0 HP instead of gaining dying.
+
+When a creature gains dying, move its initiative position to directly before the turn during which it was reduced to 0 HP. This makes its recovery check occur before the source of the knockout acts again in subsequent rounds.
 
 At the start of each turn while dying, attempt a recovery check: `d20` against DC `10 + dying value`.
 
@@ -106,7 +108,7 @@ At the start of each turn while dying, attempt a recovery check: `d20` against D
 | Failure | Increase dying by 1 |
 | Critical failure | Increase dying by 2 |
 
-When dying reaches 0, the creature is unconscious at 0 HP and gains **wounded 1**, or increases its wounded value by 1 if it already had it. Receiving healing while dying restores HP, removes dying, and leaves the creature wounded; being reduced to 0 HP again becomes more dangerous because wounded is added to the new dying value. A creature at 0 HP can spend all Hero Points to avoid gaining dying as described above.
+Whenever a creature loses the dying condition, it gains **wounded 1**, or increases its wounded value by 1 if it already had it. Receiving healing while dying restores HP and removes dying; being reduced to 0 HP again becomes more dangerous because wounded is added to the new dying value. A creature at 0 HP can use Heroic Recovery as described above.
 
 ---
 
@@ -171,22 +173,24 @@ An encounter round gives every creature a turn in initiative order. On its turn,
 
 Common actions include Strike, Stride, Step, Raise a Shield, Interact, Seek, Recall Knowledge, Demoralize, Aid, Cast a Spell, and Sustain. A spell's action icons determine whether it needs one, two, or three actions. Reactions and triggered abilities must be declared when their trigger occurs—do not retroactively add them after resolution.
 
-Each Strike after the first in a turn takes the multiple attack penalty (MAP): usually −5 on the second attack and −10 on the third and later attacks. Apply weapon traits, agile reductions, and abilities that alter MAP. MAP applies to attack rolls, not every action with the attack trait when a specific rule says otherwise.
+Each Strike after the first in a turn takes the multiple attack penalty (MAP): usually −5 on the second attack and −10 on the third and later attacks. Apply weapon traits, agile reductions, and abilities that alter MAP. MAP applies to **all checks with the attack trait**, not only Strike attack rolls.
 
 ### Aid
 
-To **Aid**, prepare to help using an action on your turn and describe how you will assist. When the triggering ally attempts the relevant check, use your reaction and roll the appropriate check against the Aid DC (normally 15). On a critical success grant a +2 circumstance bonus; on a success grant +1; on a critical failure impose −1. Some feats improve these values.
+To **Aid**, prepare to help using an action on your turn and describe how you will assist. When the triggering ally attempts the relevant check, use your reaction and roll the appropriate check against the Aid DC (normally 15). On a critical success grant a +2 circumstance bonus; if you are master in the check, grant +3 instead; if legendary, grant +4 instead. On a success grant +1; on a critical failure impose −1.
 
 ### System Data Commands
 
-When the PF2e data tools are installed, use these commands to retrieve rules rather than relying on memory:
+When the PF2e data tools are installed, use these commands to build, synchronize, and retrieve rules rather than relying on memory:
 
 ```bash
-python3 systems/pf2e/lookup.py action aid
-python3 systems/pf2e/sync_srd.py --check
+python3 systems/pf2e/build_foundry.py
+python3 systems/pf2e/sync_foundry.py --check
+python3 systems/pf2e/sync_foundry.py
+python3 systems/pf2e/lookup.py action "Aid"
 ```
 
-The first command looks up the Aid action. The second checks whether the local rules dataset needs synchronization without changing it. If those optional tools or data files are absent, use the campaign's licensed source material and record any table ruling.
+`build_foundry.py` builds the local lookup dataset from the supported Foundry source. `sync_foundry.py --check` reports whether it is stale without changing it; `sync_foundry.py` refreshes it. The quoted lookup command retrieves the Aid action. If those optional tools or data files are absent, use the campaign's licensed source material and record any table ruling.
 
 ### Table Rulings
 
