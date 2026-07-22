@@ -5,6 +5,7 @@ import pathlib
 import queue
 import sys
 import tempfile
+import threading
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -84,8 +85,7 @@ class ArtDisplayTests(unittest.TestCase):
             "/art", headers=GM, data=json.dumps({"action": "show", **VALID_ART}),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-        self.assertEqual(response.get_json(), {"art": VALID_ART})
+        self.assertEqual(response.status_code, 204, response.get_data(as_text=True))
         with self.mod._active_art_lock:
             self.assertEqual(self.mod._active_art, VALID_ART)
 
@@ -94,6 +94,47 @@ class ArtDisplayTests(unittest.TestCase):
         stream.close()
         self.assertEqual(events[1], {"stats": {"players": [{"name": "Kara"}]}})
         self.assertEqual(events[2], {"art": VALID_ART})
+
+    def test_interleaved_art_mutations_finish_with_a_matching_broadcast(self):
+        broadcasts = []
+        show_entered = threading.Event()
+        release_show = threading.Event()
+        hide_broadcasted = threading.Event()
+        original_broadcast = self.mod._broadcast
+
+        def controlled_broadcast(payload):
+            if payload == {"art": VALID_ART}:
+                show_entered.set()
+                release_show.wait(timeout=1)
+            broadcasts.append(payload)
+            if payload == {"art": None}:
+                hide_broadcasted.set()
+
+        def post(payload):
+            client = self.mod.app.test_client()
+            client.post("/art", headers=GM, data=json.dumps(payload),
+                        content_type="application/json")
+
+        self.mod._broadcast = controlled_broadcast
+        show = threading.Thread(target=post, args=({"action": "show", **VALID_ART},))
+        hide = threading.Thread(target=post, args=({"action": "hide"},))
+        try:
+            show.start()
+            self.assertTrue(show_entered.wait(timeout=1))
+            hide.start()
+            hide_broadcasted.wait(timeout=0.2)
+            release_show.set()
+            show.join(timeout=1)
+            hide.join(timeout=1)
+        finally:
+            release_show.set()
+            self.mod._broadcast = original_broadcast
+
+        self.assertFalse(show.is_alive())
+        self.assertFalse(hide.is_alive())
+        with self.mod._active_art_lock:
+            active_art = self.mod._active_art
+        self.assertEqual(broadcasts[-1], {"art": active_art})
 
     def test_gm_hide_broadcasts_null_and_clears_active_art(self):
         self.client.post(

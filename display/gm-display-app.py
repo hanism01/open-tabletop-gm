@@ -1573,7 +1573,7 @@ def art():
     if action == "hide":
         with _active_art_lock:
             _active_art = None
-        _broadcast({"art": None})
+            _broadcast({"art": None})
         return "", 204
     if action != "show":
         return jsonify({"error": "action must be show or hide"}), 400
@@ -1583,8 +1583,8 @@ def art():
         return jsonify({"error": str(error)}), 400
     with _active_art_lock:
         _active_art = payload
-    _broadcast({"art": payload})
-    return jsonify({"art": payload}), 200
+        _broadcast({"art": payload})
+    return "", 204
 
 
 @app.route("/stats", methods=["POST"])
