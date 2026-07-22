@@ -25,6 +25,10 @@ display/tunnel/config.yml
 systems/dnd5e/data/dnd5e_srd.json
 systems/dnd5e/data/dnd5e_supplemental.json
 
+# Generated Foundry-source datasets (private local table data)
+systems/pf2e/data/pf2e_foundry.json
+systems/sf2e/data/sf2e_foundry.json
+
 # Python
 __pycache__/
 *.pyc
