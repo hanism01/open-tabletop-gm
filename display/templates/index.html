@@ -2044,6 +2044,75 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
+
+  /* Party sheets stay a phone-only layer over the persistent message dock. */
+  #player-sheet-overlay { display: none; }
+  body.input-only #player-roster {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 10px 12px 4px;
+    scrollbar-width: none;
+  }
+  body.input-only .player-roster-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 8px 11px;
+    border: 1px solid rgba(220,180,90,0.42);
+    border-radius: 999px;
+    background: rgba(30,20,8,0.9);
+    color: #f4e2a8;
+    font: 700 12px/1 'Cinzel', serif;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  body.input-only .player-roster-hp {
+    color: rgba(212,196,160,0.78);
+    font: 600 11px/1 ui-monospace, monospace;
+  }
+  body.input-only #player-sheet-overlay.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0,0,0,0.68);
+  }
+  body.input-only #player-sheet-panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 100%;
+    overflow-y: auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    background: rgba(12,8,4,0.98);
+    border-left: 1px solid rgba(220,180,90,0.45);
+    animation: player-sheet-slide-in 0.2s ease-out;
+  }
+  body.input-only #player-sheet-close {
+    position: sticky;
+    top: 0;
+    float: right;
+    z-index: 1;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid rgba(220,180,90,0.45);
+    border-radius: 50%;
+    background: rgba(30,20,8,0.96);
+    color: #f4e2a8;
+    cursor: pointer;
+    font-size: 20px;
+  }
+  body.input-only #cp-status { padding: 52px 4px 10px; color: rgba(212,196,160,0.75); }
+  body.input-only #cp-body { clear: both; padding: 12px 4px; line-height: 1.55; }
+  body.input-only #cp-body h1,
+  body.input-only #cp-body h2,
+  body.input-only #cp-body h3 { color: #f4e2a8; line-height: 1.2; margin: 0.8em 0 0.35em; }
+  body.input-only #cp-body table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+  body.input-only #cp-body th,
+  body.input-only #cp-body td { padding: 6px; border-bottom: 1px solid rgba(220,180,90,0.22); text-align: left; }
+  @keyframes player-sheet-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
   /* iOS: prevent auto-zoom on focus by ensuring inputs are ≥16px */
   body.input-only #player-input-text,
   body.input-only #dp-name,
@@ -3059,6 +3128,15 @@
     <button id="sheet-close" title="Close (Esc)">✕</button>
     <div id="sheet-content"></div>
   </div>
+</div>
+
+<!-- Phone-only party sheet; it overlays rather than replacing the message dock. -->
+<div id="player-sheet-overlay" role="presentation" aria-hidden="true">
+  <section id="player-sheet-panel" role="dialog" aria-modal="true" aria-label="Character sheet">
+    <button id="player-sheet-close" type="button" aria-label="Close character sheet">✕</button>
+    <div id="cp-status" role="status"></div>
+    <div id="cp-body"></div>
+  </section>
 </div>
 
 <div id="srd-modal">
@@ -6042,10 +6120,14 @@ const _stageBtn        = document.getElementById('stage-btn');
 const _skipTurnBtn     = document.getElementById('skip-turn-btn');
 const _stagedQueueEl   = document.getElementById('staged-queue');
 const _waitingEl       = document.getElementById('waiting-indicator');
+const _playerRosterEl  = document.getElementById('player-roster');
+const _playerSheetOverlay = document.getElementById('player-sheet-overlay');
+const _playerSheetClose = document.getElementById('player-sheet-close');
 
 let _selectedChar     = 'Everybody';
 let _stagedData       = {};   // {char: {text, ready, timestamp}} — mirror of server state
 let _autorunThreshold = null; // null = use player count; int = explicit threshold
+let _playerSheetInvoker = null;
 
 // ── Toggle open/closed ────────────────────────────────────────────
 _inputPanelHdr.addEventListener('click', () => {
@@ -6073,6 +6155,55 @@ function _buildCharTabs(players) {
     _charTabs.appendChild(btn);
   });
 }
+
+function renderPlayerRoster(players) {
+  if (!_playerRosterEl) return;
+  _playerRosterEl.innerHTML = '';
+  (players || []).filter(player => player && player.name).forEach(player => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'player-roster-chip';
+    button.textContent = player.name;
+    const hp = player.hp || {};
+    if (hp.current !== undefined || hp.max !== undefined) {
+      const hpText = document.createElement('span');
+      hpText.className = 'player-roster-hp';
+      hpText.textContent = `HP ${hp.current ?? '—'}/${hp.max ?? '—'}`;
+      button.appendChild(hpText);
+    }
+    button.addEventListener('click', () => openCharacterSheet(player.name));
+    _playerRosterEl.appendChild(button);
+  });
+}
+
+function openCharacterSheet(name) {
+  if (!_playerSheetOverlay || !name) return;
+  _playerSheetInvoker = document.activeElement;
+  _playerSheetOverlay.classList.add('open');
+  _playerSheetOverlay.setAttribute('aria-hidden', 'false');
+  _playerSheetClose.focus();
+  _loadCharacterSheet(name);
+}
+
+function closePlayerSheet() {
+  if (!_playerSheetOverlay) return;
+  _playerSheetOverlay.classList.remove('open');
+  _playerSheetOverlay.setAttribute('aria-hidden', 'true');
+  if (_playerSheetInvoker && typeof _playerSheetInvoker.focus === 'function') {
+    _playerSheetInvoker.focus();
+  }
+  _playerSheetInvoker = null;
+}
+
+_playerSheetClose.addEventListener('click', closePlayerSheet);
+_playerSheetOverlay.addEventListener('click', event => {
+  if (event.target === _playerSheetOverlay) closePlayerSheet();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && _playerSheetOverlay.classList.contains('open')) {
+    closePlayerSheet();
+  }
+});
 
 // ── Render staged queue ───────────────────────────────────────────
 function _renderStagedQueue(data) {
@@ -6611,6 +6742,9 @@ function connect() {
 
     if (payload.stats) {
       updateStats(payload.stats);
+      if (document.body.classList.contains('input-only')) {
+        renderPlayerRoster(payload.stats.players);
+      }
       if (payload.stats.players && payload.stats.players.length > 0) {
         _sidebarBtn.classList.add('visible');
         _buildCharTabs(payload.stats.players);
@@ -6854,13 +6988,13 @@ function _initModeSwitcher(inputMode) {
 }
 
 // ── Character sheet rendering helper ─────────────────────────────────────
-async function _loadCharacterSheet() {
+async function _loadCharacterSheet(name) {
   const status = document.getElementById('cp-status');
   const bodyEl = document.getElementById('cp-body');
   if (!status || !bodyEl) return;
   // Resolve the character: prefer ?char= / ?character=, then localStorage / typed name.
   const _qpCh = new URLSearchParams(location.search);
-  const ch = (_qpCh.get('char') || _qpCh.get('character')
+  const ch = (name || _qpCh.get('char') || _qpCh.get('character')
               || localStorage.getItem('gm_player_name')
               || '').trim();
   if (!ch) {

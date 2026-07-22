@@ -57,6 +57,19 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
             markup,
         )
 
+    def test_input_only_roster_opens_party_character_sheet_overlay(self):
+        markup = (REPO / "display" / "templates" / "index.html").read_text()
+
+        self.assertIn("function renderPlayerRoster(players)", markup)
+        self.assertIn("button.textContent = player.name", markup)
+        self.assertIn("openCharacterSheet(player.name)", markup)
+        self.assertIn('id="player-sheet-overlay"', markup)
+        self.assertIn('id="player-sheet-close"', markup)
+        self.assertIn("function closePlayerSheet", markup)
+        self.assertIn("_loadCharacterSheet(name)", markup)
+        self.assertIn("bodyEl.innerHTML = _renderMarkdown(md)", markup)
+        self.assertIn("renderPlayerRoster(payload.stats.players)", markup)
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _import_app()
