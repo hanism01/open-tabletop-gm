@@ -82,7 +82,11 @@ system:
 
     def test_preserves_spaced_uuid_and_damage_labels(self):
         text = "@UUID[Compendium.pf2e.Item.abc] {A Label} @Damage[2d6[fire]] {Burn}"
-        self.assertEqual(strip_foundry_markup(text), "A Label Burn")
+        self.assertEqual(strip_foundry_markup(text), "A Label")
+
+    def test_removes_damage_label_without_consuming_following_text(self):
+        text = "@Damage[2d6[fire]] {Burn} now"
+        self.assertEqual(strip_foundry_markup(text), "now")
 
     def test_decodes_html_entities_exactly_once(self):
         self.assertEqual(strip_foundry_markup("&amp;lt;b&amp;gt;"), "&lt;b&gt;")

@@ -123,16 +123,20 @@ def _strip_foundry_tokens(value: str) -> str:
             index += 1
             continue
         token_name = value[index + 1 : token_end]
-        index = content_end
         label = ""
-        while index < len(value) and value[index].isspace():
-            index += 1
-        if index < len(value) and value[index] == "{":
-            label_end = _balanced_end(value, index, "{", "}")
+        label_start = content_end
+        while label_start < len(value) and value[label_start].isspace():
+            label_start += 1
+        if label_start < len(value) and value[label_start] == "{":
+            label_end = _balanced_end(value, label_start, "{", "}")
             if label_end is not None:
-                label = value[index + 1 : label_end - 1]
+                label = value[label_start + 1 : label_end - 1]
                 index = label_end
-        if token_name in {"UUID", "Check"} or label:
+            else:
+                index = content_end
+        else:
+            index = content_end
+        if token_name in {"UUID", "Check"}:
             output.append(label)
     return "".join(output)
 
