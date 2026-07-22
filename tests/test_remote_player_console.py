@@ -212,6 +212,9 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         close_start = markup.index("function closeDiceDrawer")
         close_body = markup[close_start:markup.index("\n  }", close_start)]
         self.assertLess(close_body.index("_setConsoleInert(false)"), close_body.index("invoker.focus()"))
+        sheet_start = markup.index("function closePlayerSheet")
+        sheet_body = markup[sheet_start:markup.index("\n}", sheet_start)]
+        self.assertLess(sheet_body.index("_setConsoleInert(false)"), sheet_body.index("invoker.focus()"))
 
     def test_pending_snapshot_no_match_branch_has_no_dead_reset(self):
         markup = (REPO / "display" / "templates" / "index.html").read_text()
