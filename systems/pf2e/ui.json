@@ -70,7 +70,7 @@
       { "label": "Class DC", "bind": "class_dc" }
     ],
     "stat_grid": {
-      "label": "Ability Scores",
+      "label": "Attribute Modifiers",
       "bind": "ability_scores",
       "show_modifier": false,
       "stats": [

@@ -133,7 +133,7 @@ Use `tracker.py condition add <name> <condition>` for active conditions. For a t
 | persistent damage | critical | Takes listed damage at turn end until a flat check ends it |
 | wounded | warn | Added to dying when reduced to 0 HP |
 | drained | warn | Lowers maximum HP and weakens Fortitude checks |
-| fatigued | warn | Takes penalties to AC and saves and cannot use exploration activities requiring concentration |
+| fatigued | warn | Takes penalties to AC and saves and cannot use exploration activities while traveling |
 | frightened | warn | Status penalty equal to its value; decreases at turn end |
 | sickened | warn | Status penalty equal to its value; must retch to reduce it |
 | clumsy / enfeebled / stupefied | warn | Penalty to DEX / STR / INT-WIS-CHA based checks and DCs respectively |
