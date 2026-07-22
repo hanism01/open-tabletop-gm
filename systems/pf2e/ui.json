@@ -1,0 +1,86 @@
+{
+  "manifest_version": 1,
+  "system": "pf2e",
+  "label": "Pathfinder Second Edition Remaster",
+  "sidebar": [
+    {
+      "type": "bar",
+      "label": "HP",
+      "bind": "hp",
+      "icon": "/icons/enemy.png",
+      "row_class": "sb-hp-row",
+      "num_class": "sb-hp-nums",
+      "fill_role": "hp-fill",
+      "cur": "current",
+      "max": "max",
+      "color": "hp",
+      "temp": "temp"
+    },
+    {
+      "type": "bar",
+      "label": "Hero Points",
+      "bind": "hero_points",
+      "cur": "current",
+      "max": "max",
+      "require_cur": true
+    },
+    {
+      "type": "stat_lines",
+      "lines": [
+        { "label": "AC", "bind": "ac" },
+        { "label": "Speed", "bind": "speed", "suffix": " ft" },
+        { "label": "Perception", "bind": "perception" },
+        { "label": "Class DC", "bind": "class_dc" }
+      ]
+    },
+    {
+      "type": "tag_list",
+      "bind": "conditions",
+      "class_map": {
+        "dying": "danger",
+        "unconscious": "danger",
+        "doomed": "danger",
+        "persistent damage": "danger",
+        "wounded": "warn",
+        "drained": "warn",
+        "fatigued": "warn",
+        "frightened": "warn",
+        "sickened": "warn",
+        "clumsy": "warn",
+        "enfeebled": "warn",
+        "stupefied": "warn",
+        "slowed": "warn",
+        "grabbed": "info",
+        "restrained": "info",
+        "off-guard": "info",
+        "prone": "info",
+        "concealed": "info",
+        "hidden": "info",
+        "undetected": "info",
+        "quickened": "buff"
+      }
+    },
+    { "type": "effects", "bind": "effects" }
+  ],
+  "sheet": {
+    "combat_strip": [
+      { "label": "HP", "bind": "hp", "format": "ratio" },
+      { "label": "AC", "bind": "ac" },
+      { "label": "Speed", "bind": "speed", "suffix": " ft" },
+      { "label": "Class DC", "bind": "class_dc" }
+    ],
+    "stat_grid": {
+      "label": "Ability Scores",
+      "bind": "ability_scores",
+      "show_modifier": false,
+      "stats": [
+        { "key": "str", "label": "STR" },
+        { "key": "dex", "label": "DEX" },
+        { "key": "con", "label": "CON" },
+        { "key": "int", "label": "INT" },
+        { "key": "wis", "label": "WIS" },
+        { "key": "cha", "label": "CHA" }
+      ]
+    }
+  }
+}

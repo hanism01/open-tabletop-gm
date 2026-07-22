@@ -52,6 +52,15 @@ systems/<your-system>/
 | System | Module | Notes |
 |--------|--------|-------|
 | D&D 5e | `systems/dnd5e/` | Full support — scripts, SRD dataset, character tools |
+| Pathfinder 2e (Remaster) | `systems/pf2e/` | Rules module and display manifest; builds a private local lookup dataset from Foundry VTT's public GitHub source |
+| Starfinder 2e | `systems/sf2e/` | Rules module and display manifest; builds a private local lookup dataset from Foundry VTT's public GitHub source |
+
+The Pathfinder 2e and Starfinder 2e lookup datasets are generated on your machine from Foundry VTT's public GitHub source and are not bundled with this repository (the generated files are git-ignored). This is reference data for running a table, not an official rules distribution or a replacement for Foundry. Build and query each module locally:
+
+```bash
+python3 systems/pf2e/build_foundry.py && python3 systems/pf2e/lookup.py action "aid"
+python3 systems/sf2e/build_foundry.py && python3 systems/sf2e/lookup.py item "azimuth laser pistol"
+```
 
 **Adding your own:** Copy `systems/TEMPLATE.md` to `systems/<your-system>/system.md` and fill it in. See [SYSTEM-PORTING.md](SYSTEM-PORTING.md) for a compatibility breakdown of popular systems (Pathfinder 2e, Vampire: The Masquerade, Cyberpunk RED, Warhammer 40k).
 

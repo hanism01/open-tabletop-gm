@@ -18,6 +18,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,6 +28,54 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DISPLAY = REPO / "display"
+
+
+class ConditionClassMapTest(unittest.TestCase):
+    """Manifest condition classes support conditions carrying a numeric value."""
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for template JavaScript tests")
+    def test_valued_condition_uses_base_condition_severity(self):
+        source = (DISPLAY / "templates" / "index.html").read_text()
+        start = source.index("function _wTagList")
+        end = source.index("\nfunction _wTagSingle", start)
+        function = source[start:end]
+        script = """
+const document = {
+  createElement: () => ({children: [], dataset: {}, appendChild(child) { this.children.push(child); }})
+};
+const _bind = (player, bind) => player[bind];
+""" + function + """
+const card = {children: [], appendChild(child) { this.children.push(child); }};
+_wTagList(card, {conditions: ['dying 2', 'FRIGHTENED 1', 'persistent damage 1d6 fire', 'quickened']}, {
+  bind: 'conditions',
+  class_map: {dying: 'danger', frightened: 'warn', persistent: 'info', 'persistent damage': 'danger', quickened: 'buff'}
+});
+const classes = card.children[0].children.map(pill => pill.className);
+if (JSON.stringify(classes) !== JSON.stringify([
+  'sb-condition-pill danger', 'sb-condition-pill warn', 'sb-condition-pill danger', 'sb-condition-pill buff'
+])) process.exit(1);
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for template JavaScript tests")
+    def test_stat_lines_append_manifest_suffix(self):
+        source = (DISPLAY / "templates" / "index.html").read_text()
+        start = source.index("function _wStatLines")
+        end = source.index("\nfunction _wTagList", start)
+        function = source[start:end]
+        script = """
+const document = {
+  createElement: () => ({children: [], appendChild(child) { this.children.push(child); }})
+};
+const _bind = (player, bind) => player[bind];
+""" + function + """
+const card = {children: [], appendChild(child) { this.children.push(child); }};
+_wStatLines(card, {speed: 25}, {lines: [{label: 'Speed', bind: 'speed', suffix: ' ft'}]});
+if (card.children[0].innerHTML !== 'Speed <span class="val">25 ft</span>') process.exit(1);
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 def _load_module(path: Path, name: str):

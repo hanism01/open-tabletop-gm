@@ -43,10 +43,30 @@ the GM can choose art with provenance. There is no GenAI fallback.
 
 ## Display
 
-`art show` publishes a single active-art SSE event. The display shows a non-obstructive
-image panel or overlay with alt text plus a caption and source link. The active-art state
-is replayed to clients that reconnect. A blocked or broken remote image has a clear
-failure state; it must not disrupt player input or the responsive phone layout.
+`art show` publishes a single active-art SSE event. The display renders it as a
+collapsible **inline scene-art panel** in the central narration flow, not as a modal or
+floating overlay. When open, the panel occupies its own block: narration remains visible
+above and below it and scrolls naturally with the rest of the scene. It never covers the
+left party rail, upper-right controls, fixed Party Input composer, or DM Help control.
+
+The panel contains a title/category, image, caption, available creator attribution, and
+an explicit source link. The image itself is not a surprise link. `art hide` clears the
+active image; a player who locally collapses an active panel sees a small, in-flow “Show
+scene art” control. The collapsed preference applies across ordinary reconnects and
+re-renders, but a newly pushed image opens the panel again.
+
+On desktop, a player may optionally pin the active image in a bounded upper-central stage
+area while narration scrolls below it. Pinning is a per-browser presentation preference,
+not campaign state and not a GM action. It must preserve clear reading space and may not
+consume the right settings gutter. On phone, pinning is unavailable: art is an in-flow,
+full-width card above narration and the persistent message composer, with a bounded height.
+
+The active-art state is replayed to clients that reconnect. A blocked or broken remote
+image has a clear failure state that retains its source link; it must not disrupt player
+input, the planned sheet slide-over, or the dice drawer. The panel uses semantic
+`figure`/`figcaption` markup, keyboard-operable show/hide/source controls, useful alt
+text derived from saved title/category, a polite announcement for newly pushed art, and
+reduced-motion-safe transitions.
 
 ## Safety and Operational Constraints
 

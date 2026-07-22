@@ -108,9 +108,9 @@ What is the main limited resource characters spend during play?
   Cyberpunk: Luck points
   Wrath & Glory: Glory / Wrath
 
-The display companion maps this to the "spell slots" sidebar UI — pips that drain and refill.
-If your resource doesn't map cleanly to "slots per level", describe the nearest equivalent
-and how you want it tracked.
+The display companion uses the system's `ui.json` manifest to select a widget: `bar`
+for a `{current,max}` pool, `pip_levels` for level-banded uses, or `badge_set`/`badge`
+for small counters. Describe the data shape and refresh behavior that the manifest needs.
 -->
 
 **Resource name:** [e.g. Spell Slots / Blood Pool / Luck]
@@ -157,18 +157,19 @@ For other systems, use tracker.py conditions to track incapacitation state.
 
 <!--
 List the status effects used in your system with severity tiers for colour-coding:
-  critical  → red pills in display sidebar
+  danger    → red pills in display sidebar
   warn      → amber pills
   info      → blue pills
   buff      → green pills
 
-You will need to update CONDITION_COLOURS in tracker.py for your system's conditions.
-See SYSTEM-PORTING.md for instructions.
+In `systems/<your-system>/ui.json`, use the `tag_list` widget's `class_map` to map
+condition names to display classes: `danger`, `warn`, `info`, or `buff`. See
+SYSTEM-PORTING.md and systems/UI-MANIFEST.md for instructions.
 -->
 
 | Condition | Severity | Effect summary |
 |-----------|----------|----------------|
-| [condition] | critical/warn/info/buff | [brief rule note] |
+| [condition] | danger/warn/info/buff | [brief rule note] |
 
 ---
 
