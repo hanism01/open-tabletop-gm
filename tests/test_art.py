@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,7 +72,7 @@ class ArtCommandTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("search cache", stderr.getvalue().lower())
 
-    def test_expired_cache_cannot_be_saved_and_successful_save_consumes_it(self):
+    def test_expired_or_future_cache_cannot_be_saved_and_current_cache_is_consumed(self):
         from io import StringIO
         from contextlib import redirect_stderr, redirect_stdout
 
@@ -89,7 +90,17 @@ class ArtCommandTests(unittest.TestCase):
             )
         self.assertTrue(cache.exists())
 
-        cache.write_text(json.dumps({"created_at": "2999-01-01T00:00:00Z", "candidates": [candidate]}))
+        future = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+        cache.write_text(json.dumps({"created_at": future, "candidates": [candidate]}))
+        with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
+            self.assertEqual(
+                art.main(["save", "--campaign", "ashfall", "--candidate", "0", "--as", "keep", "--kind", "place"]),
+                2,
+            )
+        self.assertTrue(cache.exists())
+
+        current = datetime.now(timezone.utc).isoformat()
+        cache.write_text(json.dumps({"created_at": current, "candidates": [candidate]}))
         with redirect_stdout(StringIO()):
             self.assertEqual(
                 art.main(["save", "--campaign", "ashfall", "--candidate", "0", "--as", "keep", "--kind", "place", "--tags", "ruin,fortress"]),

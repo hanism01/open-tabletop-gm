@@ -433,7 +433,10 @@ def _load_search_cache(campaign: str) -> list[dict[str, str]]:
         candidates = payload["candidates"]
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise ArtValidationError("Art search cache is invalid; run search again") from error
-    if created_at.tzinfo is None or datetime.now(timezone.utc) - created_at > CACHE_TTL:
+    if created_at.tzinfo is None:
+        raise ArtValidationError("Art search cache has expired; run search again")
+    age = datetime.now(timezone.utc) - created_at
+    if not timedelta(0) <= age <= CACHE_TTL:
         raise ArtValidationError("Art search cache has expired; run search again")
     if not isinstance(candidates, list):
         raise ArtValidationError("Art search cache is invalid; run search again")
