@@ -1,5 +1,6 @@
 """Tests for Foundry pack categorization and document normalization."""
 
+import json
 import unittest
 
 from systems.paizo2e.packs import normalize_document, pack_category, strip_foundry_markup
@@ -10,11 +11,15 @@ class PackCategoryTests(unittest.TestCase):
         self.assertEqual(pack_category("packs/sf2e/alien-core/alien.yaml"), "creatures")
         self.assertEqual(pack_category("packs/pf2e/monster-bestiary/ogre.yaml"), "creatures")
         self.assertEqual(pack_category("packs/pf2e/spells/fireball.yaml"), "spells")
-        self.assertIsNone(pack_category("packs/pf2e/assets/logo.webp"))
+        self.assertIsNone(pack_category("packs/pf2e/spells/logo.webp"))
         for suffix in (".png", ".jpg", ".mp3", ".ogg"):
             with self.subTest(suffix=suffix):
-                self.assertIsNone(pack_category(f"packs/pf2e/assets/logo{suffix}"))
+                self.assertIsNone(pack_category(f"packs/pf2e/spells/logo{suffix}"))
         self.assertIsNone(pack_category("packs/pf2e/unsupported/example.yaml"))
+        self.assertIsNone(pack_category("packs/pf2e/spells/../assets/x.yaml"))
+        self.assertIsNone(pack_category("packs/pf2e/spells/README.md"))
+        self.assertEqual(pack_category("packs/pf2e/spells/fireball.yml"), "spells")
+        self.assertEqual(pack_category("packs/pf2e/spells/fireball.json"), "spells")
 
     def test_maps_direct_pack_directories(self):
         expected = {
@@ -68,10 +73,36 @@ system:
         )
         self.assertEqual(strip_foundry_markup(text), "Power Attack\n\nClimb")
 
+    def test_handles_balanced_tokens_and_html_entities(self):
+        text = (
+            '<p data-note="a > b">@UUID[Compendium.pf2e.actionspf2e.Item.abc]'
+            "{Strike &amp; Step}</p><p>@Damage[2d6[fire]] R&amp;D</p>"
+        )
+        self.assertEqual(strip_foundry_markup(text), "Strike & Step\n\nR&D")
+
     def test_rejects_nameless_and_non_mapping_yaml(self):
         self.assertIsNone(normalize_document("type: action", "packs/pf2e/actions/nope.yaml", "actions"))
         self.assertIsNone(normalize_document("- name: Not a document", "packs/pf2e/actions/nope.yaml", "actions"))
         self.assertIsNone(normalize_document("name: [", "packs/pf2e/actions/nope.yaml", "actions"))
+
+    def test_normalizes_malformed_values_to_json_safe_shapes(self):
+        raw = """name: Strange Data
+type: [action]
+system:
+  description: &recursive
+    value: '<p>Safe &amp; sound.</p>'
+    self: *recursive
+  traits:
+    value: [move, 7]
+  level:
+    value: {not: scalar}
+"""
+        record = normalize_document(raw, "packs/pf2e/actions/strange.yaml", "actions")
+        self.assertEqual(record["type"], "")
+        self.assertEqual(record["traits"], [])
+        self.assertIsNone(record["level"])
+        self.assertEqual(record["description"], "Safe & sound.")
+        json.dumps(record)
 
 
 if __name__ == "__main__":
