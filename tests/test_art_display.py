@@ -32,6 +32,13 @@ class BrowserArtDisplayContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.template = (REPO / "display" / "templates" / "index.html").read_text()
 
+    def assert_in_order(self, source, *needles):
+        """Require lifecycle calls to surround a mutation in one source scope."""
+        position = -1
+        for needle in needles:
+            position = source.find(needle, position + 1)
+            self.assertNotEqual(position, -1, f"missing {needle!r} in scoped source")
+
     def test_scene_art_is_an_inline_semantic_figure_not_an_overlay(self):
         self.assertIn("scene-art-panel", self.template)
         self.assertIn("document.createElement('figure')", self.template)
@@ -73,6 +80,66 @@ class BrowserArtDisplayContractTests(unittest.TestCase):
         clear_renderer = self.template[clear_start:clear_end]
         self.assertIn("_flushForBlock()", clear_renderer)
         self.assertIn("_reanchorCursor()", clear_renderer)
+
+    def test_scene_art_mutations_flush_then_reanchor_in_their_own_scopes(self):
+        clear_start = self.template.index("function clearSceneArt()")
+        clear_end = self.template.index("function renderSceneArt(", clear_start)
+        clear_renderer = self.template[clear_start:clear_end]
+        self.assert_in_order(
+            clear_renderer,
+            "_flushForBlock()",
+            "_sceneArtHost.remove()",
+            "_reanchorCursor()",
+        )
+
+        start = self.template.index("function renderSceneArt(")
+        end = self.template.index("let charQueue", start)
+        renderer = self.template[start:end]
+        show_start = renderer.index("  const show = () => {")
+        hide_start = renderer.index("    hide.addEventListener('click'", show_start)
+        show_end = renderer.index("  if (_sceneArtCollapsedKey === key)", show_start)
+        show_renderer = renderer[show_start:show_end]
+        host_replace = "if (_sceneArtHost) _sceneArtHost.replaceWith(panel);"
+        host_append = "else textContent.appendChild(panel);"
+        self.assertIn(host_replace, show_renderer)
+        self.assertIn(host_append, show_renderer)
+
+        # Both initial append and replacement are bracketed inside show().
+        self.assert_in_order(
+            show_renderer, "_flushForBlock()", host_replace, "_reanchorCursor()"
+        )
+        self.assert_in_order(
+            show_renderer, "_flushForBlock()", host_append, "_reanchorCursor()"
+        )
+
+        # Collapsing replaces the figure only after flushing and reanchors after.
+        hide_end = renderer.index("    if (_sceneArtHost) _sceneArtHost.replaceWith(panel);", hide_start)
+        hide_renderer = renderer[hide_start:hide_end]
+        self.assert_in_order(
+            hide_renderer,
+            "_flushForBlock()",
+            "panel.replaceWith(chip)",
+            "_reanchorCursor()",
+        )
+
+        # Both show-chip handlers restore through show() between flush/reanchor.
+        first_chip = hide_renderer[hide_renderer.index("chip.addEventListener('click'"):]
+        self.assertIn("_sceneArtCollapsedKey = null;\n        show();", first_chip)
+        collapsed_start = renderer.index("  if (_sceneArtCollapsedKey === key)")
+        collapsed_end = renderer.index("  } else {", collapsed_start)
+        collapsed_renderer = renderer[collapsed_start:collapsed_end]
+        self.assert_in_order(
+            collapsed_renderer,
+            "_flushForBlock()",
+            "if (_sceneArtHost) _sceneArtHost.replaceWith(chip);",
+            "_reanchorCursor()",
+        )
+        self.assert_in_order(
+            collapsed_renderer,
+            "_flushForBlock()",
+            "else textContent.appendChild(chip);",
+            "_reanchorCursor()",
+        )
 
 
 def _import_app():
