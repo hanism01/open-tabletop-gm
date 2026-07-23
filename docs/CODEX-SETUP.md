@@ -8,6 +8,31 @@ The repository root already ships an [`AGENTS.md`](../AGENTS.md). Codex loads it
 automatically when you launch from the repo. The steps below cover the two things
 `AGENTS.md` cannot configure on its own: the **sandbox** and **environment**.
 
+## Quick smoke test
+
+Do sections 1–4 below first (install Codex, sign in, set `GM_CAMPAIGN_ROOT`), then from
+the repository root:
+
+```bash
+cd /path/to/open-tabletop-gm
+export GM_CAMPAIGN_ROOT="$PWD/campaigns"   # keeps writes inside the sandboxed workspace
+codex
+```
+
+Inside the Codex session, run these in order:
+
+- [ ] `/gm new smoketest` — a directory appears under `campaigns/smoketest/`. Confirms
+      `AGENTS.md` loaded, the router was followed, and sandbox writes work.
+- [ ] `/gm roll d20` — `scripts/dice.py` returns a number. Confirms `<skill-base>` and the
+      repo-root cwd resolve.
+- [ ] `/gm load smoketest` — the seven-step load branch runs and opening narration prints.
+      Confirms `SKILL.md` first-load and the branch router.
+- [ ] Ask Codex: *"which instruction files have you loaded?"* — if `SKILL-branches.md` is
+      missing or cut off, the 32 KiB `AGENTS.md` cap truncated it (see below).
+
+The GM Help button is a separate test — it needs `OTGM_HINT_CMD` and a running display
+(section 3).
+
 ## Why configuration is required
 
 Codex's default permission preset is `sandbox_mode = "workspace-write"` with
