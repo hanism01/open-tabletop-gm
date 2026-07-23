@@ -44,9 +44,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
 <link rel="icon" type="image/x-icon"  href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32"  href="/icons/app_icon_32.png">
-<link rel="apple-touch-icon" sizes="180x180"      href="/icons/app_icon_180.png">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/app_icon_192.png">
+<link rel="icon" type="image/png" sizes="32x32"  href="/static/icons/app_icon_32.svg">
+<link rel="apple-touch-icon" sizes="180x180"      href="/static/icons/app_icon_180.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icons/app_icon_192.svg">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -3068,7 +3068,7 @@
 <div id="bottom-fade"></div>
 
 <!-- Corner logo -->
-<img id="corner-logo" src="/icons/logo_primary_fullcolor.png" alt="D20 Neural Core">
+<img id="corner-logo" src="/static/icons/logo_primary_fullcolor.svg" alt="D20 Neural Core">
 
 <!-- Sidebar toggle button -->
 <button id="sidebar-toggle" title="Toggle character sidebar">◀ Hide</button>
@@ -4213,7 +4213,7 @@ function _classIconSrc(classStr) {
   if (!classStr) return null;
   const lower = classStr.toLowerCase();
   for (const [key, file] of Object.entries(_CLASS_ICONS)) {
-    if (lower.includes(key)) return '/icons/' + file + '.png';
+    if (lower.includes(key)) return '/static/icons/' + file + '.svg';
   }
   return null;
 }
@@ -4234,7 +4234,7 @@ function _addBlockBadge(el) {
   for (const { icon, words } of _BLOCK_BADGES) {
     if (words.some(w => text.includes(w))) {
       const img = document.createElement('img');
-      img.src = '/icons/' + icon + '.png';
+      img.src = '/static/icons/' + icon + '.svg';
       img.className = 'block-badge';
       img.alt = icon;
       el.appendChild(img);
@@ -4452,7 +4452,7 @@ function renderDiceBlock(text, isReplay) {
   const iconName = _diceRollIcon(cleaned);
   if (iconName) {
     const ico = document.createElement('img');
-    ico.src = '/icons/' + iconName + '.png';
+    ico.src = '/static/icons/' + iconName + '.svg';
     ico.className = 'dice-block-icon';
     ico.alt = '';
     block.appendChild(ico);
@@ -4535,9 +4535,9 @@ function renderInspirationBlock(name, reason) {
   block.className = 'inspiration-block';
   const title = document.createElement('div');
   title.className = 'inspiration-title';
-  title.innerHTML = `<img src="/icons/focus.png" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-right:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">` +
+  title.innerHTML = `<img src="/static/icons/focus.svg" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-right:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">` +
     `${name}` +
-    `<img src="/icons/focus.png" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-left:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">`;
+    `<img src="/static/icons/focus.svg" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-left:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">`;
   const sub = document.createElement('div');
   sub.className = 'inspiration-sub';
   sub.textContent = 'Inspiration';
@@ -4816,10 +4816,10 @@ const _DEFAULT_CONDITION_CLASS = {
 const DEFAULT_UI_MANIFEST = {
   manifest_version: 1, system: 'dnd5e', label: 'D&D 5e',
   sidebar: [
-    { type: 'bar', label: 'HP', bind: 'hp', icon: '/icons/enemy.png',
+    { type: 'bar', label: 'HP', bind: 'hp', icon: '/static/icons/health.svg',
       row_class: 'sb-hp-row', num_class: 'sb-hp-nums', fill_role: 'hp-fill',
       cur: 'current', max: 'max', color: 'hp', temp: 'temp' },
-    { type: 'bar', label: 'XP', bind: 'xp', icon: '/icons/ability.png',
+    { type: 'bar', label: 'XP', bind: 'xp', icon: '/static/icons/ability.svg',
       row_class: 'sb-xp-row', num_class: 'sb-xp-nums', fill_role: 'xp-fill',
       fill_class: 'sb-xp-bar', cur: 'current', max: 'next', require_cur: true },
     { type: 'stat_lines', lines: [
@@ -5218,7 +5218,7 @@ function openSheet(name) {
     content.appendChild(_smDivider());
     const title = document.createElement('div');
     title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/dagger.png" class="sheet-section-icon" alt="">Attacks';
+    title.innerHTML = '<img src="/static/icons/dagger.svg" class="sheet-section-icon" alt="">Attacks';
     content.appendChild(title);
     const table = document.createElement('table');
     table.className = 'sm-attacks-table';
@@ -5248,7 +5248,7 @@ function openSheet(name) {
     content.appendChild(_smDivider());
     const title = document.createElement('div');
     title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/crystal_ball.png" class="sheet-section-icon" alt="">Spellcasting';
+    title.innerHTML = '<img src="/static/icons/crystal_ball.svg" class="sheet-section-icon" alt="">Spellcasting';
     content.appendChild(title);
     // Derive live slot string from spell_slots object if available; fall back to static string
     let _slotsStr = sp.slots || '';
@@ -5309,7 +5309,7 @@ function openSheet(name) {
     content.appendChild(_smDivider());
     const title = document.createElement('div');
     title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/scroll.png" class="sheet-section-icon" alt="">Features & Passives';
+    title.innerHTML = '<img src="/static/icons/scroll.svg" class="sheet-section-icon" alt="">Features & Passives';
     content.appendChild(title);
     sheet.features.forEach(f => {
       const el = document.createElement('div');
@@ -5332,7 +5332,7 @@ function openSheet(name) {
     content.appendChild(_smDivider());
     const title = document.createElement('div');
     title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/pack.png" class="sheet-section-icon" alt="">Inventory';
+    title.innerHTML = '<img src="/static/icons/pack.svg" class="sheet-section-icon" alt="">Inventory';
     content.appendChild(title);
     const list = document.createElement('ul');
     list.className = 'sm-inventory-list';
@@ -5689,7 +5689,7 @@ function updateStats(stats) {
         const el = document.createElement('div');
         el.className = 'sb-turn-item sb-turn-has-icon' + (name === merged.current ? ' sb-turn-current' : '');
         const isPC = name in _playerData;
-        const iconSrc = isPC ? '/icons/helmet.png' : '/icons/enemy.png';
+        const iconSrc = isPC ? '/static/icons/helmet.svg' : '/static/icons/enemy.svg';
         el.innerHTML = `<img src="${iconSrc}" class="sb-turn-icon" alt="">${name}`;
         list.appendChild(el);
       });

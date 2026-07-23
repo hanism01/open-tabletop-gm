@@ -7,7 +7,7 @@
       "type": "bar",
       "label": "HP",
       "bind": "hp",
-      "icon": "/icons/enemy.png",
+      "icon": "/static/icons/health.svg",
       "row_class": "sb-hp-row",
       "num_class": "sb-hp-nums",
       "fill_role": "hp-fill",
