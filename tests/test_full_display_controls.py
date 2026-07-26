@@ -43,12 +43,34 @@ class BoundCharacterInjection(unittest.TestCase):
         html = self.client.get("/", headers=TUNNEL).get_data(as_text=True)
         self.assertIn('window.GM_BOUND_CHARACTER = "Mira"', html)
 
-    def test_bound_character_is_json_escaped(self):
-        # tojson is what makes a quote or backslash in a name unable to break
-        # out of the string literal. Assert the filter's effect, not its name.
-        html = self.client.get("/").get_data(as_text=True)
-        self.assertNotIn("window.GM_BOUND_CHARACTER = ;", html)
-        self.assertIn("window.GM_BOUND_CHARACTER =", html)
+    @staticmethod
+    def _bound_character_line(html):
+        # Up to the statement's own semicolon, so the *real* closing
+        # </script> tag (which follows on the same line) is never mistaken
+        # for a breakout inside the assigned value.
+        start = html.index("window.GM_BOUND_CHARACTER")
+        return html[start:html.index(";", start) + 1]
+
+    def test_bound_character_with_apostrophe_is_json_escaped(self):
+        # "Mira O'Neil" is legal under _CHAR_NAME_RE (apostrophes are allowed)
+        # and still needs escaping so it can't terminate the JS string literal.
+        self._session_cookie("Mira O'Neil")
+        html = self.client.get("/", headers=TUNNEL).get_data(as_text=True)
+        line = self._bound_character_line(html)
+        self.assertIn("Mira O", line)
+        self.assertNotIn("'", line)
+        self.assertIn("\\u0027", line)
+
+    def test_bound_character_with_script_breakout_attempt_is_json_escaped(self):
+        # _CHAR_NAME_RE is not on this path: join-token characters come from
+        # raw argv (scripts/gm_invite.py) with no validation before minting.
+        # A name containing "</script>" must not be able to break out of the
+        # <script> block it's rendered into.
+        self._session_cookie("Kara</script><script>alert(1)</script>")
+        html = self.client.get("/", headers=TUNNEL).get_data(as_text=True)
+        line = self._bound_character_line(html)
+        self.assertNotIn("</script>", line)
+        self.assertIn("\\u003c", line)
 
 
 if __name__ == "__main__":
