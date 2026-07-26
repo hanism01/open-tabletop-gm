@@ -838,6 +838,11 @@
   /* ── Character sheet modal ── */
   .sm-authored { margin-top: 18px; border-top: 1px solid rgba(180,140,60,0.28); padding-top: 14px; }
   .sm-authored h1, .sm-authored h2, .sm-authored h3 { color: rgba(220,185,100,0.9); margin: 14px 0 6px; }
+  /* Without this the UA default 2em (40px) makes an authored "# Kara" dwarf the
+     modal's own 19px .sm-name directly above it. */
+  .sm-authored h1 { font-size: 17px; }
+  .sm-authored h2 { font-size: 15px; }
+  .sm-authored h3 { font-size: 13px; }
   .sm-authored table { border-collapse: collapse; width: 100%; margin: 8px 0; }
   .sm-authored th, .sm-authored td { border: 1px solid rgba(180,140,60,0.25); padding: 4px 8px; text-align: left; }
   .sm-authored-missing { opacity: 0.45; font-style: italic; }
@@ -2794,6 +2799,9 @@
   :root[data-theme="light"] #srd-close:hover { color: rgb(70, 50, 18); }
   :root[data-theme="light"] .sm-name,
   :root[data-theme="light"] .sm-section-title,
+  :root[data-theme="light"] .sm-authored h1,
+  :root[data-theme="light"] .sm-authored h2,
+  :root[data-theme="light"] .sm-authored h3,
   :root[data-theme="light"] #srd-body .srd-title { color: rgb(70, 50, 18); }
   :root[data-theme="light"] .sm-identity,
   :root[data-theme="light"] #srd-body .srd-meta { color: rgba(80, 65, 40, 0.85); }
@@ -5159,11 +5167,6 @@ function _smDivider() {
 }
 
 let _openSheetName = null;
-// openSheet's own stale-response guard. Deliberately NOT _playerSheetRequest:
-// that counter belongs to the phone overlay and closePlayerSheet() increments
-// it, so sharing it would let any overlay close silently discard an authored
-// body still in flight for this modal.
-let _openSheetRequest = 0;
 
 function openSheet(name) {
   _openSheetName = name;
@@ -5457,27 +5460,37 @@ function openSheet(name) {
   // modal shows both rather than making them choose a view.
   //
   // The fetch fires after the modal is already open so the live header paints
-  // immediately and the body fills in underneath. Clicking two sidebar cards
-  // quickly must not paint the first character's markdown into the second's
-  // sheet, hence the counter.
-  const request = ++_openSheetRequest;
+  // immediately and the body fills in underneath.
+  //
+  // There is deliberately no stale-response guard here, and none should be
+  // added. This function begins with `content.innerHTML = ''`, so opening a
+  // second character detaches this `authored` node before the first response
+  // can land; the late write goes into an orphan that is not in the document.
+  // In particular do not reach for _playerSheetRequest — that counter belongs
+  // to the phone overlay and closePlayerSheet() increments it, so borrowing it
+  // would let an overlay close discard a body this modal is still waiting for.
   const authored = document.createElement('div');
   authored.className = 'sm-authored';
   content.appendChild(authored);
 
-  fetch(`/character/${encodeURIComponent(name)}`, { credentials: 'same-origin' })
-    .then(res => res.ok ? res.text() : Promise.reject(res.status))
-    .then(md => {
-      if (request !== _openSheetRequest) return;
-      authored.innerHTML = _renderMarkdown(md);
-    })
-    .catch(() => {
-      if (request !== _openSheetRequest) return;
-      // No .md on disk is the normal state for an NPC or a freshly imported
-      // PC — a quiet note, not an error. The live header above still stands.
-      authored.innerHTML =
-        '<div class="sm-authored-missing">No authored sheet file for this character.</div>';
-    });
+  _fetchAuthoredSheet(name).then(result => {
+    if (result.ok) {
+      authored.innerHTML = result.html;
+      return;
+    }
+    // A 404 is the normal state for an NPC or a freshly imported PC — a quiet
+    // note, not an error, and the live header above still stands. Everything
+    // else is a real failure and must not be reported as a missing file: a
+    // revoked invite (403), a restart (500) or a dropped connection would
+    // otherwise tell the table the GM never wrote a sheet that is sitting on
+    // their disk.
+    const note = document.createElement('div');
+    note.className = 'sm-authored-missing';
+    note.textContent = result.status === 404
+      ? 'No authored sheet file for this character.'
+      : `Could not load the authored sheet (${result.status || 'network error'}).`;
+    authored.replaceChildren(note);
+  });
 }
 
 function closeSheet() {
@@ -7393,19 +7406,45 @@ function _initModeSwitcher(inputMode) {
   document.body.appendChild(menu);
 }
 
+// ── One place that knows how to talk to /character/<name> ────────────────
+// Two consumers render the authored sheet: openSheet's modal (a live stats
+// header plus this body) and the phone overlay's #cp-body. They differ in
+// presentation, legitimately — but they must not differ in how they reach the
+// endpoint or in what they conclude from a failure. The first cut of this
+// feature had one of them reporting every 403, 500 and dropped connection as
+// "no file on disk".
+//
+// Returns { ok: true, html } | { ok: false, status } | { ok: false, error }.
+// Auth is the gm_session cookie (or a loopback caller); `credentials:
+// 'same-origin'` is the fetch default, stated because here it is load-bearing
+// rather than incidental. No token header: _dndToken is null, and
+// /character/<name> reads neither X-DND-Token nor X-DND-Device.
+async function _fetchAuthoredSheet(name) {
+  try {
+    const res = await fetch(`/character/${encodeURIComponent(name)}`,
+                            { credentials: 'same-origin' });
+    if (!res.ok) return { ok: false, status: res.status };
+    return { ok: true, html: _renderMarkdown(await res.text()) };
+  } catch (e) {
+    return { ok: false, error: e };
+  }
+}
+
 // ── Character sheet rendering helper ─────────────────────────────────────
 async function _loadCharacterSheet(name) {
   const status = document.getElementById('cp-status');
   const bodyEl = document.getElementById('cp-body');
   if (!status || !bodyEl) return;
   const request = ++_playerSheetRequest;
-  // Resolve the character: the passed name, then GM_IDENTITY (the server's
-  // answer), then localStorage / typed name last. GM_IDENTITY already folds in
-  // ?char= / ?character=, so reading them again here only ever did one thing —
-  // put an unvalidated URL param ahead of the httponly session cookie, which is
-  // the exact ordering the one identity resolver exists to prevent.
-  // localStorage['gm_player_name'] stays last: unvalidated free text, shared
-  // across every tab on this origin.
+  // Resolve the character. The only live caller (openCharacterSheet, itself
+  // reached only from a roster chip) always passes a non-empty name, so the
+  // rest of this chain is a defensive fallback nothing exercises today. It is
+  // kept in the order it is for a reason worth preserving if a caller ever does
+  // pass '': GM_IDENTITY already folds in ?char= / ?character=, so reading those
+  // here directly would put an unvalidated URL param ahead of the httponly
+  // session cookie — the exact ordering the one identity resolver exists to
+  // prevent. localStorage['gm_player_name'] stays last: unvalidated free text,
+  // shared across every tab on this origin.
   const ch = (name || GM_IDENTITY
               || localStorage.getItem('gm_player_name')
               || '').trim();
@@ -7415,25 +7454,19 @@ async function _loadCharacterSheet(name) {
     return;
   }
   status.textContent = `Loading ${ch}…`;
-  try {
-    const res = await fetch(`/character/${encodeURIComponent(ch)}`, {
-      headers: _authHeaders(),
-    });
-    if (request !== _playerSheetRequest) return;
-    if (!res.ok) {
-      status.textContent = `Could not load sheet (${res.status})`;
-      bodyEl.innerHTML = '';
-      return;
-    }
-    const md = await res.text();
-    if (request !== _playerSheetRequest) return;
-    bodyEl.innerHTML = _renderMarkdown(md);
+  const result = await _fetchAuthoredSheet(ch);
+  // One resume point, so one staleness check: the helper awaits the response
+  // body internally, and closePlayerSheet() bumps the counter on its way out.
+  if (request !== _playerSheetRequest) return;
+  if (result.ok) {
+    bodyEl.innerHTML = result.html;
     status.textContent = '';
-  } catch (e) {
-    if (request !== _playerSheetRequest) return;
-    status.textContent = `Network error — ${e.message || e}`;
-    bodyEl.innerHTML = '';
+    return;
   }
+  bodyEl.innerHTML = '';
+  status.textContent = result.status
+    ? `Could not load sheet (${result.status})`
+    : `Network error — ${(result.error && result.error.message) || result.error}`;
 }
 
 // Minimal markdown → HTML for character sheets. Supports the subset used in

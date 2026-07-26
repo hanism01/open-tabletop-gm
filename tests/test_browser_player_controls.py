@@ -218,17 +218,25 @@ def test_a_character_with_no_sheet_file_is_a_quiet_note_not_an_error(gm_display,
     _seed_sheet_data(page, "Brann")
     page.evaluate("() => openSheet('Brann')")
 
-    expect(page.locator("#sheet-content .sm-authored-missing")).to_be_visible()
+    note = page.locator("#sheet-content .sm-authored-missing")
+    expect(note).to_be_visible()
+    # Visibility alone does not pin the "quiet" half: the failure note for a
+    # 403 or a dropped connection carries the same class. What separates them
+    # is that a missing file is a statement about the campaign, not a fault
+    # report — no status code, nothing for a player to escalate to the GM.
+    expect(note).to_have_text("No authored sheet file for this character.")
+    expect(note).not_to_contain_text("404")
     # The live header is the part that must survive the 404.
     expect(page.locator("#sheet-content .sm-name")).to_have_text("Brann")
 
 
-def test_closing_the_phone_overlay_does_not_discard_an_open_sheet_fetch(gm_display, context):
-    # openSheet must own its stale counter. _playerSheetRequest belongs to the
-    # phone overlay and closePlayerSheet() bumps it, so an openSheet fetch that
-    # borrowed it would be silently dropped by any overlay close in flight —
-    # leaving the modal showing the live header and no authored body, with no
-    # error anywhere.
+def test_closing_the_phone_overlay_does_not_blank_the_modal_body(gm_display, context):
+    # openSheet carries no stale-response guard of its own — clearing
+    # #sheet-content on the next open is what makes a late response harmless.
+    # The failure this pins is the tempting shortcut: reusing the phone
+    # overlay's _playerSheetRequest, which closePlayerSheet() increments. That
+    # would let any overlay close silently drop a body this modal is still
+    # waiting for, leaving the live header alone and no error anywhere.
     held = []
     page = gm_display.open(context, "Kara")
     page.route("**/character/Kara", lambda route: held.append(route))
@@ -241,3 +249,21 @@ def test_closing_the_phone_overlay_does_not_discard_an_open_sheet_fetch(gm_displ
                   body=KARA_SHEET)
 
     expect(page.locator("#sheet-content .sm-authored h1")).to_have_text("Kara")
+
+
+def test_a_failed_fetch_does_not_claim_the_gm_wrote_no_sheet(gm_display, context):
+    # A 403 from a revoked invite, a 500 from a restart, a dropped connection —
+    # none of these are evidence about what is on the GM's disk. Reporting them
+    # as "no authored sheet file" sends the GM hunting for a file that is
+    # sitting right there, with nothing anywhere saying otherwise.
+    page = gm_display.open(context, "Kara")
+    page.route("**/character/Kara", lambda route: route.fulfill(
+        status=403, content_type="application/json", body='{"error": "forbidden"}'))
+    _seed_sheet_data(page, "Kara")
+    page.evaluate("() => openSheet('Kara')")
+
+    note = page.locator("#sheet-content .sm-authored-missing")
+    expect(note).to_be_visible()
+    expect(note).to_contain_text("403")
+    # The live header is still the part that must survive any failure.
+    expect(page.locator("#sheet-content .sm-name")).to_have_text("Kara")

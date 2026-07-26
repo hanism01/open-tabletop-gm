@@ -66,7 +66,13 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn('id="player-sheet-close"', markup)
         self.assertIn("function closePlayerSheet", markup)
         self.assertIn("_loadCharacterSheet(name)", markup)
-        self.assertIn("bodyEl.innerHTML = _renderMarkdown(md)", markup)
+        # The markdown → HTML step moved into _fetchAuthoredSheet, the one
+        # helper both sheet renderers now share, so the overlay's own line is
+        # an assignment from that helper's result rather than a _renderMarkdown
+        # call. Both halves are pinned: the conversion still happens, and the
+        # overlay still paints it into #cp-body.
+        self.assertIn("return { ok: true, html: _renderMarkdown(await res.text()) };", markup)
+        self.assertIn("bodyEl.innerHTML = result.html;", markup)
         self.assertIn("renderPlayerRoster(payload.stats.players)", markup)
 
     def test_player_sheet_overlay_discards_stale_loads_and_restores_modal_state(self):

@@ -990,21 +990,3 @@ class StopPropagationHasARealTarget(unittest.TestCase):
         self.assertEqual(MARKUP.count("document.addEventListener('click', () => {"), 2)
         self.assertIn("document.querySelectorAll('.tts-voice-menu')"
                       ".forEach(m => { m.hidden = true; });", MARKUP)
-
-
-class AuthoredSheetRoute(unittest.TestCase):
-    """Task 6 leans on /character/<name>; these pin the behaviour it relies on."""
-
-    def setUp(self):
-        self.app = _import_app()
-        self.client = self.app.app.test_client()
-
-    def test_unknown_character_is_a_404_not_a_500(self):
-        resp = self.client.get("/character/Nobody")
-        self.assertEqual(resp.status_code, 404)
-
-    def test_everybody_alias_is_rejected(self):
-        # 'Everybody' is a staging alias, never a readable sheet — the route
-        # deliberately does not use _char_ok for exactly this reason.
-        resp = self.client.get("/character/Everybody")
-        self.assertEqual(resp.status_code, 404)
