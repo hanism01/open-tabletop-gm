@@ -177,6 +177,14 @@ class ArtDisplayTests(unittest.TestCase):
             self.mod._active_art = None
         with self.mod._stats_lock:
             self.mod._current_stats = {"players": [{"name": "Kara"}]}
+        # _import_app() runs the module's top-level _load_log() against the real,
+        # gitignored display/text_log.json — whatever a developer's machine (or an
+        # earlier app/test run) left there. That leaks into _text_log and makes
+        # /stream emit an extra replay_batch frame ahead of "stats", shifting every
+        # positional index below. Isolate from that machine state explicitly,
+        # regardless of what's on disk.
+        with self.mod._text_log_lock:
+            self.mod._text_log.clear()
 
     def test_art_requires_gm_authentication(self):
         response = self.client.post(
