@@ -34,19 +34,22 @@ PROBE_DIR  = Path(__file__).parent
 # ---------------------------------------------------------------------------
 
 def build_system_prompt(include_skill_md: bool = True) -> str:
-    files = [
+    # Local-only, per-installation helper files (gitignored). A fresh clone will
+    # not have them, so their absence is expected and not warned about.
+    optional = [
         SKILL_BASE / "no_think.md",
         SKILL_BASE / "paths.md",
     ]
+    required = []
     if include_skill_md:
-        files.append(SKILL_BASE / "SKILL.md")
-    files.append(SKILL_BASE / "SKILL-commands.md")
+        required.append(SKILL_BASE / "SKILL.md")
+    required.append(SKILL_BASE / "SKILL-commands.md")
 
     parts = []
-    for f in files:
+    for f in optional + required:
         if f.exists():
             parts.append(f.read_text())
-        else:
+        elif f in required:
             print(f"[WARN] Missing system prompt file: {f}", file=sys.stderr)
     return "\n\n".join(parts)
 

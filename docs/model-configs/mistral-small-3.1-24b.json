@@ -24,11 +24,11 @@
   },
 
   "system_prompt_files": [
-    "no_think.md",
-    "paths.md",
     "SKILL.md",
     "SKILL-commands.md"
   ],
+
+  "_system_prompt_files_note": "The 2026-04-18 run also prepended the local-only no_think.md and paths.md helpers, both gitignored per-installation files. /no_think has no effect on Mistral, which has no thinking mode.",
 
   "system_prompt_size": {
     "chars_approx": 29536,
