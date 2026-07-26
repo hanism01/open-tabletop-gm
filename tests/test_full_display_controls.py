@@ -119,5 +119,27 @@ class IdentityResolver(unittest.TestCase):
         self.assertIn("if (GM_IDENTITY && names.includes(GM_IDENTITY)) _selectedChar = GM_IDENTITY;", MARKUP)
 
 
+class DiceDrawerOutsidePhoneView(unittest.TestCase):
+    def _css_block(self, selector):
+        start = MARKUP.index(selector)
+        return MARKUP[start:MARKUP.index("}", start) + 1]
+
+    def test_open_drawer_is_not_scoped_to_input_only(self):
+        self.assertIn("#dice-drawer.open {", MARKUP)
+        self.assertNotIn("body.input-only #dice-drawer.open {", MARKUP)
+
+    def test_drawer_panel_is_not_scoped_to_input_only(self):
+        self.assertIn("#dice-drawer-panel {", MARKUP)
+        self.assertNotIn("body.input-only #dice-drawer-panel {", MARKUP)
+
+    def test_body_scroll_lock_stays_phone_only(self):
+        # The full display scrolls #text-scroll, not body. Fixing body there
+        # would jump the narration to the top every time the drawer opens.
+        self.assertIn("body.input-only.dice-drawer-open {", MARKUP)
+
+    def test_wide_screens_get_a_centred_panel(self):
+        self.assertIn("body:not(.input-only) #dice-drawer-panel {", MARKUP)
+
+
 if __name__ == "__main__":
     unittest.main()

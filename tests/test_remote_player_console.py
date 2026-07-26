@@ -167,7 +167,12 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         markup = (REPO / "display" / "templates" / "index.html").read_text()
         # Console + overlay styling is scoped to the phone view, never the GM display.
         self.assertIn("body.input-only #message-dock", markup)
-        self.assertIn("body.input-only #dice-drawer", markup)
+        # The dice drawer is shared with the full display as of the full-display
+        # player controls work, so it is no longer descendant-scoped to the phone.
+        # What must stay phone-only is the body scroll-lock: the full display
+        # scrolls #text-scroll, and fixing body there would jump the narration.
+        self.assertIn("body.input-only.dice-drawer-open {", markup)
+        self.assertIn("body:not(.input-only) #dice-drawer-panel {", markup)
         self.assertIn("body.input-only #player-sheet-overlay", markup)
         # The template's real phone breakpoint anchor (there is no 430px query).
         self.assertIn("@media (max-width: 700px)", markup)
