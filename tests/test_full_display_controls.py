@@ -141,7 +141,56 @@ class DiceDrawerOutsidePhoneView(unittest.TestCase):
         self.assertIn("body:not(.input-only) #dice-drawer-panel {", MARKUP)
 
 
+def _norm(text):
+    """Collapse every run of whitespace to one space.
+
+    Lets a multi-line source snippet be asserted against the template without
+    pinning its indentation or line breaks.
+    """
+    return " ".join(text.split())
+
+
+NORM_MARKUP = _norm(MARKUP)
+
+# The two — and only two — places _initDicePad is called, each pinned together
+# with the guard that governs it. Asserted verbatim (whitespace-normalised)
+# rather than by inferring JavaScript block structure, because the text itself
+# pins polarity, guard identifier, argument object and nesting all at once:
+# `if (!GM_IDENTITY)` cannot slip through, and there is no parser to be
+# confused by a multi-line condition, a brace-less `if`, `if (X){` with no
+# space, or a brace inside a string literal.
+#
+# Whitespace normalisation makes this tolerant of pure re-indentation and of
+# re-wrapping — including the file's dominant `} else if (X) {` style, which
+# still contains both snippets as substrings. What it will not tolerate is a
+# change to the statement text or the nesting, e.g. wrapping the call in an
+# extra `if (padEl) { ... }`. That fails loudly, naming expected and actual
+# text, which is the intended outcome for a call-site contract: the contract
+# should be re-stated deliberately, not silently re-derived.
+PHONE_CALL_SITE = """
+  if (_inputMode) {
+    document.body.classList.add('input-only');
+    const ip = document.getElementById('input-panel');
+    if (ip) ip.classList.remove('collapsed');
+    _initDicePad({ requests: true });
+  }
+"""
+
+FULL_DISPLAY_CALL_SITE = (
+    "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }")
+
+# Stable landmark immediately above both call sites, used only to window the
+# failure message: a bare assertIn against the whole template reports a 2.5MB
+# haystack, which is not a diagnosable failure.
+CALL_SITE_ANCHOR = "const _inputMode = _qp.get('view') === 'input'"
+
+
 class DiceRequestGating(unittest.TestCase):
+    # Exact declaration, not the `function _initDicePad` prefix: a future
+    # `function _initDicePadButton(...)` declared earlier in the same script
+    # would otherwise silently re-target every slice taken from here.
+    PAD_SIGNATURE = "function _initDicePad(opts) {"
+
     def _pad_body(self):
         # Bounded to the function's own extent, not to end-of-file: the
         # function currently happens to be the last thing in the script, so
@@ -152,9 +201,53 @@ class DiceRequestGating(unittest.TestCase):
         # body is indented (nested); only the function's own closing brace
         # sits alone on an unindented line, so that's an unambiguous landmark
         # for its true end.
-        start = MARKUP.index("function _initDicePad")
+        self.assertEqual(
+            MARKUP.count(self.PAD_SIGNATURE), 1,
+            f"expected exactly one {self.PAD_SIGNATURE!r} declaration")
+        start = MARKUP.index(self.PAD_SIGNATURE)
         end = MARKUP.index("\n}\n", start) + len("\n}\n")
         return MARKUP[start:end]
+
+    def _assert_call_site(self, snippet):
+        """Assert `snippet` appears in the template, ignoring whitespace.
+
+        On failure, print the expected snippet next to the actual text at
+        CALL_SITE_ANCHOR — never the whole template.
+        """
+        needle = _norm(snippet)
+        if needle in NORM_MARKUP:
+            return
+        anchor_at = NORM_MARKUP.find(_norm(CALL_SITE_ANCHOR))
+        if anchor_at == -1:
+            self.fail(f"call-site anchor {CALL_SITE_ANCHOR!r} is gone from the "
+                      f"template; expected call site was:\n  {needle}")
+        actual = NORM_MARKUP[anchor_at:anchor_at + len(needle) + 400]
+        self.fail("call site not found (whitespace-insensitive).\n"
+                  f"  expected: {needle}\n"
+                  f"  actual region after {CALL_SITE_ANCHOR!r}:\n    {actual}")
+
+    @staticmethod
+    def _call_sites():
+        """Every line that calls _initDicePad(...), as (line number, text).
+
+        Excludes the function's own declaration and any occurrence sitting
+        after a `//` on its line or inside a JS/HTML block comment.
+        """
+        sites = []
+        idx = 0
+        while True:
+            idx = MARKUP.find("_initDicePad(", idx)
+            if idx == -1:
+                return sites
+            line_start = MARKUP.rfind("\n", 0, idx) + 1
+            line_end = MARKUP.index("\n", idx)
+            line = MARKUP[line_start:line_end]
+            stripped = line.strip()
+            before = line[:idx - line_start]
+            commented = "//" in before or stripped.startswith(("*", "<!--"))
+            if not stripped.startswith("function _initDicePad") and not commented:
+                sites.append((MARKUP.count("\n", 0, idx) + 1, stripped))
+            idx = line_end
 
     def test_init_takes_a_requests_option(self):
         self.assertIn("function _initDicePad(opts) {", MARKUP)
@@ -166,100 +259,47 @@ class DiceRequestGating(unittest.TestCase):
         self.assertIn("if (_wantRequests) window._onDiceRequestCancelled = _onDiceRequestCancelled;", body)
         self.assertIn("if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;", body)
 
-    def test_full_display_inits_the_pad_only_with_an_identity(self):
-        self.assertIn(
-            "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }",
-            MARKUP)
+    def test_the_pad_is_called_from_exactly_two_call_sites(self):
+        # A third call site is how the unbound full display would regain the
+        # DM-request handlers — a GM who requests a roll would then lock and
+        # badge their own screen. Neither of the two legitimate sites may be
+        # duplicated or joined by an unguarded top-level call; the guard on
+        # each is pinned separately (see the two tests below).
+        sites = self._call_sites()
+        self.assertEqual(
+            len(sites), 2,
+            "expected exactly two _initDicePad(...) call sites (phone mode and "
+            f"the full display's bound-player branch), found {len(sites)}: {sites}")
 
-    @staticmethod
-    def _guard_condition_for_call(text, call_idx):
-        # Return the condition text of the `if (...)`/`else if (...)` that
-        # structurally governs the _initDicePad( call at call_idx, or None
-        # if the call is not nested in one. Scoped by indentation, not by
-        # counting braces: this codebase's convention (relied on already by
-        # the MEDIUM-4 fix in test_remote_player_console.py) is that a
-        # block's own closing `}` sits alone on a line at the same
-        # indentation as the `if` that opened it, one level shallower than
-        # the block's contents. Walking upward and stopping at the first
-        # strictly-shallower line — rather than counting every `{`/`}`
-        # character in the file — cannot be confused by a brace character
-        # sitting inside an unrelated string/comment (that line's *content*
-        # is irrelevant; only its indentation and whether it is `if (`/
-        # `else if (`/a bare `}` is examined), which is what made the
-        # previous brace-depth walk fragile.
-        line_start = text.rfind('\n', 0, call_idx) + 1
-        line_end = text.index('\n', call_idx)
-        call_line = text[line_start:line_end]
-        indent = len(call_line) - len(call_line.lstrip(' '))
-        trimmed = call_line.strip()
-        if trimmed.startswith("if (") or trimmed.startswith("else if ("):
-            # Guard and call share one line: `if (X) { _initDicePad(...); }`.
-            return trimmed[trimmed.index('(') + 1:trimmed.index(') {')]
-
-        pos = line_start
-        while pos > 0:
-            prev_end = pos - 1
-            prev_start = text.rfind('\n', 0, prev_end) + 1
-            prev_line = text[prev_start:prev_end]
-            prev_trimmed = prev_line.strip()
-            if prev_trimmed:
-                prev_indent = len(prev_line) - len(prev_line.lstrip(' '))
-                if prev_indent < indent:
-                    if prev_trimmed == '}':
-                        return None  # the enclosing block already closed
-                    if prev_trimmed.startswith("if (") or prev_trimmed.startswith("else if ("):
-                        return prev_trimmed[prev_trimmed.index('(') + 1:prev_trimmed.index(') {')]
-                    return None  # shallower, but not a guard or a close
-            pos = prev_start
-        return None
-
-    def test_gm_display_without_identity_installs_no_request_handlers(self):
-        # The unbound full display must not call _initDicePad at all: a GM who
-        # requests a roll would otherwise lock and badge their own screen.
-        #
-        # Every `_initDicePad(` call site (excluding the function definition
-        # itself) must be governed by an `if`/`else if` whose *condition*
-        # names _inputMode or GM_IDENTITY specifically — not just "some
-        # enclosing if", which a Task 5 shape like `if (fab) { _initDicePad
-        # (...) }` would satisfy without actually gating on view/identity.
-        # See _guard_condition_for_call for why this is indentation-scoped
-        # rather than a brace-depth walk.
-        idx = 0
-        calls = []
-        while True:
-            idx = MARKUP.find("_initDicePad(", idx)
-            if idx == -1:
-                break
-            line_start = MARKUP.rfind('\n', 0, idx) + 1
-            line_end = MARKUP.index('\n', idx)
-            line = MARKUP[line_start:line_end].strip()
-            if not line.startswith("function _initDicePad"):
-                calls.append(idx)
-            idx = line_end
-        self.assertTrue(calls, "expected at least one _initDicePad(...) call site")
-        for call_idx in calls:
-            condition = self._guard_condition_for_call(MARKUP, call_idx)
-            self.assertIsNotNone(
-                condition,
-                f"_initDicePad( call at offset {call_idx} is not governed by "
-                f"any if/else-if guard")
-            self.assertTrue(
-                "_inputMode" in condition or "GM_IDENTITY" in condition,
-                f"_initDicePad( call at offset {call_idx} is guarded by "
-                f"{condition!r}, which names neither _inputMode nor GM_IDENTITY")
+    def test_phone_call_site_stays_guarded_by_input_mode(self):
+        # The phone's own call site, pinned whole. Task 4 must not have moved
+        # or re-guarded it: the phone view has to behave exactly as before.
+        self._assert_call_site(PHONE_CALL_SITE)
 
     def test_full_display_inits_the_pad_only_with_an_identity(self):
         # HIGH 1 fix: the identity must come from the call site, not from an
         # unconditional read of GM_IDENTITY inside _initDicePad itself.
-        self.assertIn(
-            "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }",
-            MARKUP)
+        #
+        # `else if (GM_IDENTITY)` verbatim also pins the *polarity* of the
+        # guard: `if (!GM_IDENTITY)` would be the unbound GM console installing
+        # its own request handlers, which is the entire reason this gate exists.
+        self._assert_call_site(FULL_DISPLAY_CALL_SITE)
+
+    @staticmethod
+    def _bind_derivation():
+        """The `const _bound = ...;` statement, up to its own semicolon.
+
+        Asserting against this slice rather than the whole template keeps a
+        failure message down to one readable line.
+        """
+        start = MARKUP.index("const _bound = (_qp.get('char')")
+        return MARKUP[start:MARKUP.index(";", start) + 1]
 
     def test_binding_derivation_consults_the_bind_option(self):
-        self.assertIn(
-            "(_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) "
-            "|| ((opts && opts.bind) || '').trim();",
-            MARKUP)
+        self.assertEqual(
+            self._bind_derivation(),
+            "const _bound = (_qp.get('char') || _qp.get('character') || '')"
+            ".trim().slice(0, 24) || ((opts && opts.bind) || '').trim();")
 
     def test_bind_operand_is_not_truncated(self):
         # Fix round 2 (Important finding): _CHAR_NAME_RE permits names up to
@@ -271,11 +311,12 @@ class DiceRequestGating(unittest.TestCase):
         # the player's full name would silently fail to match on their own
         # screen — the exact harm HIGH 1 was about, reintroduced via a
         # different path.
-        derivation_start = MARKUP.index("const _bound = (_qp.get('char')")
-        derivation_end = MARKUP.index(";", derivation_start) + 1
-        derivation = MARKUP[derivation_start:derivation_end]
-        bind_operand_start = derivation.index("opts.bind")
-        self.assertNotIn(".slice(", derivation[bind_operand_start:])
+        derivation = self._bind_derivation()
+        bind_operand = derivation[derivation.index("opts.bind"):]
+        # Every spelling of a length cap, not just the one that was there:
+        # `.substring(0, 24)` and `.substr(0, 24)` truncate identically.
+        for truncator in (".slice(", ".substring(", ".substr("):
+            self.assertNotIn(truncator, bind_operand)
 
     def test_binding_derivation_never_reads_gm_identity_directly(self):
         # A remote player who opens /?view=input (phone branch, no `bind`
