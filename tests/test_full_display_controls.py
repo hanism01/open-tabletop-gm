@@ -186,6 +186,7 @@ FULL_DISPLAY_CALL_SITE = """
   else if (GM_IDENTITY) {
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
+    if (_inputArrow) _inputArrow.textContent = '\u25bc';
     _initDicePad({ bind: GM_IDENTITY });
   }
 """
@@ -560,17 +561,53 @@ class PlayerControlButtons(unittest.TestCase):
     def test_dice_button_is_hidden_when_the_pad_was_never_initialised(self):
         self.assertIn("_pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';", MARKUP)
 
-    def test_sheet_button_is_disabled_for_everybody(self):
+    def test_sheet_button_resolves_who_and_excludes_everybody(self):
+        # 'Everybody' is a staging alias, not a character: openSheet('Everybody')
+        # hits its _playerData guard and dead-clicks.
         self.assertIn("const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');", MARKUP)
-        self.assertIn("_pcSheetBtn.disabled = !who;", MARKUP)
+
+    def test_sheet_button_is_disabled_until_the_character_has_sheet_data(self):
+        # Review finding 3: enabling on a truthy GM_IDENTITY alone is a silent
+        # dead click. _playerData is empty until updateStats merges the first
+        # SSE `stats` frame, and stays empty forever if the DM never ran
+        # /gm load — while both syncs that matter (the top-level one and the
+        # one after the pad-init block) run before any frame arrives.
+        self.assertIn("const ready = !!(who && _playerData[who]);", MARKUP)
+        self.assertIn("_pcSheetBtn.disabled = !ready;", MARKUP)
+
+    def test_the_disabled_sheet_button_says_why_it_is_disabled(self):
+        self.assertIn("Pick a character tab first", MARKUP)
+        self.assertIn("No sheet data for ", MARKUP)
+
+    def test_player_data_is_declared_above_the_sync(self):
+        # `const _playerData = {}` — reading it from _syncPlayerControls before
+        # its declaration would be a temporal-dead-zone ReferenceError, and the
+        # top-level _syncPlayerControls() call runs at parse-order position.
+        self.assertLess(MARKUP.index("const _playerData = {}"),
+                        MARKUP.index("function _syncPlayerControls"))
+
+    def test_controls_resync_when_player_data_is_wiped(self):
+        # payload.clear deletes every _playerData key. Without a re-sync the
+        # Sheet button stays enabled against data that is gone.
+        wipe = "for (const key of Object.keys(_playerData)) delete _playerData[key];"
+        idx = MARKUP.index(wipe)
+        self.assertIn("_syncPlayerControls();", MARKUP[idx:idx + 200])
 
     def test_sheet_button_opens_the_resolved_character(self):
         self.assertIn("if (who) openSheet(who);", MARKUP)
 
     def test_both_click_handlers_stop_propagation(self):
-        # #input-panel-header toggles .collapsed on click. A click that bubbled
-        # out of the footer would collapse the panel out from under the overlay
-        # the button just opened.
+        # Review finding 2: the reason the brief gave for these calls — that a
+        # bubbling click would reach #input-panel-header's collapse toggle — is
+        # impossible. The header div *closes* before #input-body opens, and
+        # #input-footer is inside #input-body, so the header is a sibling of
+        # these buttons and never sees their clicks (pinned by
+        # test_the_panel_header_is_not_an_ancestor_of_the_footer).
+        #
+        # They still earn their keep: two document-level close-on-outside-click
+        # handlers (the TTS voice menu and the mode-switcher menu) would
+        # otherwise fire, so opening the Phone Mode picker and then clicking
+        # Sheet would leave that menu open behind the modal.
         start = MARKUP.index("const _pcSheetBtn")
         block = MARKUP[start:MARKUP.index("\n_syncPlayerControls();", start)]
         self.assertEqual(block.count("e.stopPropagation();"), 2)
@@ -640,3 +677,72 @@ class ShippedSourceComments(unittest.TestCase):
         # after the plan is gone.
         import re
         self.assertEqual(re.findall(r"Task \d", MARKUP), [])
+
+
+class CollapseArrowStaysInSync(unittest.TestCase):
+    """#input-toggle-arrow is the panel's only open/closed affordance.
+
+    Convention set by the header's own toggle: collapsed reads ▲ ("click to
+    open"), expanded reads ▼. An un-collapse that leaves the arrow at ▲ makes
+    the first header click read as a no-op — it collapses the panel and sets ▲
+    again, so the control gives no state feedback until the second click.
+    """
+
+    def test_the_toggle_sets_the_convention(self):
+        self.assertIn(
+            "_inputArrow.textContent = _inputPanel.classList.contains('collapsed') "
+            "? '▲' : '▼';", MARKUP)
+
+    def test_the_bound_full_display_updates_the_arrow(self):
+        # Against the template, not against FULL_DISPLAY_CALL_SITE — asserting
+        # the constant contains its own text is a tautology.
+        at = NORM_MARKUP.index(_norm("else if (GM_IDENTITY) {"))
+        self.assertIn("if (_inputArrow) _inputArrow.textContent = '▼';",
+                      NORM_MARKUP[at:at + 300])
+
+    def test_only_the_phone_uncollapse_may_skip_the_arrow(self):
+        # The phone is the one exception: its header is hidden outright, so
+        # there is no arrow to keep in sync.
+        self.assertIn("body.input-only #input-panel-header { display: none !important; }", MARKUP)
+        sites, idx = [], 0
+        while True:
+            idx = MARKUP.find("classList.remove('collapsed')", idx)
+            if idx == -1:
+                break
+            sites.append(MARKUP[idx:idx + 120])
+            idx += 1
+        self.assertEqual(len(sites), 4, f"expected four un-collapse sites, found {len(sites)}")
+        without_arrow = [s for s in sites if "_inputArrow.textContent = '▼';" not in s]
+        self.assertEqual(
+            len(without_arrow), 1,
+            "exactly one un-collapse — the phone branch, whose header is hidden — "
+            f"may skip the arrow update; found {len(without_arrow)}: {without_arrow}")
+        self.assertIn("_initDicePad({ bind: GM_IDENTITY });", without_arrow[0])
+
+
+class StopPropagationHasARealTarget(unittest.TestCase):
+    """Why the two e.stopPropagation() calls exist (review finding 2)."""
+
+    def test_the_panel_header_is_not_an_ancestor_of_the_footer(self):
+        # Structural, not merely ordering: the header's own closing tag sits
+        # immediately before #input-body opens, and #input-footer is inside
+        # #input-body. So the brief's stated mechanism — a footer click
+        # bubbling into the header's collapse toggle — cannot happen.
+        self.assertIn('<span id="input-toggle-arrow">▲</span>\n'
+                      '  </div>\n'
+                      '  <div id="input-body">', MARKUP)
+        self.assertLess(MARKUP.index('<div id="input-body">'),
+                        MARKUP.index('<div id="input-footer">'))
+
+    def test_nothing_else_toggles_the_collapsed_class(self):
+        # If a delegated/document-level collapse toggle ever appears, the
+        # sibling argument above stops being the whole story.
+        self.assertEqual(MARKUP.count("classList.toggle('collapsed')"), 1)
+
+    def test_the_two_outside_click_closers_still_exist(self):
+        # These are what the stopPropagation calls actually suppress: without
+        # them, opening the Phone Mode picker and clicking Sheet leaves the
+        # menu open behind the modal.
+        self.assertEqual(MARKUP.count("document.addEventListener('click', () => {"), 2)
+        self.assertIn("document.querySelectorAll('.tts-voice-menu')"
+                      ".forEach(m => { m.hidden = true; });", MARKUP)

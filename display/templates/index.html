@@ -6351,14 +6351,26 @@ const _pcDiceBtn  = document.getElementById('pc-dice-btn');
 function _syncPlayerControls() {
   if (!_pcSheetBtn || !_pcDiceBtn) return;
   const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
-  _pcSheetBtn.disabled = !who;
-  _pcSheetBtn.title = who ? `Open ${who}'s character sheet` : 'Pick a character tab first';
+  // Enabled only when the sheet can actually open. openSheet early-returns
+  // with a console.warn when _playerData has no entry for the name, and
+  // _playerData stays empty until updateStats merges the first SSE `stats`
+  // frame — forever, if the DM never ran /gm load. Both syncs that matter run
+  // before any frame arrives, so without this gate the button is a silent
+  // dead click for every player on first load.
+  const ready = !!(who && _playerData[who]);
+  _pcSheetBtn.disabled = !ready;
+  _pcSheetBtn.title = ready ? `Open ${who}'s character sheet`
+                    : who  ? `No sheet data for ${who} yet — the DM has not run /gm load`
+                           : 'Pick a character tab first';
   _pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';
 }
 
-// e.stopPropagation() is load-bearing on both: #input-panel-header toggles
-// .collapsed on click, so a click bubbling up out of the footer would shut the
-// panel out from under the overlay the button just opened.
+// e.stopPropagation() is load-bearing on both, though not for the reason it
+// looks like: #input-panel-header is a *sibling* of #input-body, not an
+// ancestor of it, so a footer click never reaches the header's collapse
+// toggle. What it does reach are the two document-level close-on-outside-click
+// handlers — the TTS voice menu and the mode-switcher menu — which would
+// otherwise leave a menu open behind the modal this click just raised.
 if (_pcSheetBtn) {
   _pcSheetBtn.addEventListener('click', e => {
     e.stopPropagation();
@@ -7091,6 +7103,7 @@ function connect() {
     if (payload.clear) {
       // Wipe sidebar player data and DOM
       for (const key of Object.keys(_playerData)) delete _playerData[key];
+      _syncPlayerControls();   // Sheet must not stay enabled against data that is gone
       document.querySelectorAll('.sb-player').forEach(el => el.remove());
       const sbEl = document.getElementById('sidebar');
       if (sbEl) sbEl.classList.remove('has-data');
@@ -7180,9 +7193,14 @@ connect();
   // arriving and the autorun countdown, neither of which fires on a fresh
   // load with an empty queue, so a player following an invite link would land
   // on a shut "Party Input" bar with no way to reach any of it.
+  // The arrow goes with it. The phone branch above can skip that because
+  // body.input-only hides #input-panel-header outright, but here the header is
+  // visible, and an expanded panel still showing the collapsed glyph makes the
+  // first header click read as a no-op.
   else if (GM_IDENTITY) {
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
+    if (_inputArrow) _inputArrow.textContent = '▼';
     _initDicePad({ bind: GM_IDENTITY });
   }
   _initModeSwitcher(_inputMode);
