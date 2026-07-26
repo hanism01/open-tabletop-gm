@@ -664,6 +664,25 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # the wrong reason (review D4).
         self.assertIn('<button id="pc-sheet-btn" type="button" disabled', self._footer())
 
+    def test_dice_button_ships_hidden(self):
+        # Review F4, and the mirror of test_sheet_button_ships_disabled — which
+        # cites this attribute as prior art while nothing actually pinned it.
+        # Measured: removing style="display:none" from the tag left the entire
+        # suite green (336 passed / 6 deselected, and 6 passed in the browser
+        # harness). Same fail-safe reason as the sheet button:
+        # window._openDiceDrawer does not exist until _initDicePad has run, and
+        # a Dice button that opens nothing is worse than no Dice button.
+        #
+        # The browser harness cannot cover this and this test is not redundant
+        # with it: on an unbound display #input-panel is still collapsed so the
+        # button has no box either way, and on a bound display
+        # _syncPlayerControls() has already rewritten .style.display by the time
+        # the page has loaded. The shipped attribute only governs the window
+        # before the first sync — which is also the permanent state if anything
+        # earlier in the inline script throws.
+        self.assertIn('<button id="pc-dice-btn" type="button" style="display:none"',
+                      self._footer())
+
     def test_the_static_disabled_state_carries_its_own_explanation(self):
         # If the script never runs, the shipped attributes are all the user
         # gets, so they must not claim the sheet is one click away.
@@ -708,6 +727,16 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # an aria-label that does not contain the visible label breaks them.
         self.assertInRegion("`Sheet — ${reason}`", self.REASON, until=self.REASON_END)
 
+    # Every receiver that names this button outright, either quote style,
+    # tolerant of whitespace around the dot and inside the call. Anchored on a
+    # *call expression* rather than on proximity: prose discussing the rule
+    # mentions the attribute and the button, but does not spell out a whole
+    # setAttribute call, so this does not have to be run over blanked source.
+    ARIA_DISABLED_WRITE = re.compile(
+        r"""(?:_pcSheetBtn"""
+        r"""|(?:getElementById|querySelector)\(\s*['"]#?pc-sheet-btn['"]\s*\))"""
+        r"""\s*\.\s*setAttribute\(\s*['"]aria-disabled['"]""")
+
     def test_aria_disabled_is_not_duplicated_onto_the_native_attribute(self):
         # Considered and declined. `disabled` already maps to the same
         # accessible state; ARIA-in-HTML's first rule is to use the native
@@ -715,44 +744,60 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # tooltip delivery — the actual M2 concern — while adding a second
         # source of truth to keep in sync.
         #
-        # Two directions, two exact strings — deliberately not a proximity
-        # scan. Rounds 4 and 5 both went to a scan (first over CSS selectors,
-        # then over a hand-blanked copy of the template) because the attribute
-        # can be set from markup or from script, and both times the scan was
-        # the defect: it read the template's own prose as if it were code. The
-        # measure of how narrow that footing was: today's single occurrence of
-        # the attribute is in a comment, 238 chars from a `#pc-sheet-btn`
-        # mention later in the same paragraph, against a 160-char window that
-        # needs the match to *end* inside it — so 90 characters of prose is all
-        # that stood between the rule and a failure about a defect that does
-        # not exist. (Re-wrapping alone could not have closed that: the three
-        # `\n  // ` line prefixes in between are worth 15 characters even if
-        # the whole paragraph collapsed onto one line. It takes an edit to the
-        # words.) A proximity rule cannot be run over prose that
-        # discusses the identifiers it hunts, and blanking the prose first only
-        # moved the fragility.
+        # Two directions, no proximity scan. Rounds 4 and 5 both went to a scan
+        # (first over CSS selectors, then over a hand-blanked copy of the
+        # template) because the attribute can be set from markup or from
+        # script, and both times the scan read the template's own prose as if
+        # it were code. The measure of how narrow that footing was: today's
+        # single occurrence of the attribute is in a comment, 238 chars from a
+        # `#pc-sheet-btn` mention later in the same paragraph, against a
+        # 160-char window that needs the match to *end* inside it — so 90
+        # characters of prose stood between the rule and a failure about a
+        # defect that does not exist. (Re-wrapping alone could not have closed
+        # that: the three `\n  // ` line prefixes in between are worth 15
+        # characters even if the whole paragraph collapsed onto one line. It
+        # takes an edit to the words.) Blanking the prose first only moved the
+        # fragility — and on the current template it moved it far enough that
+        # the scan matched nothing at all, since the only occurrence sits in a
+        # comment the blanker erased.
         #
-        # What is left is the two places the attribute could actually reach
-        # this button. The footer slice is markup only, so any aria-disabled in
-        # it is on one of these buttons. The JS direction is pinned by the
-        # exact call, which is how the click handler — outside every text
-        # window the earlier forms used — stays covered.
+        # THE TRADE, STATED PLAINLY (review F3). The retired scan was not a
+        # weaker detector than this pair — it was a stronger one. It caught any
+        # syntax whatever within 160 chars of a mention of this button. Four
+        # forms were checked against both; the old scan caught all four, and
+        # this pair catches three of them:
         #
-        # Known gap, accepted: an alias (`const b = _pcSheetBtn; b.setAttribute
-        # (...)`) or a property write (`_pcSheetBtn.ariaDisabled = 'true'`)
-        # passes both. Neither is prose-sensitive, and the browser harness can
-        # assert the rendered attribute directly if that ever matters.
+        #   1. aria-disabled="true" on the tag           — caught (footer)
+        #   2. _pcSheetBtn.setAttribute('aria-disabled'  — caught (regex)
+        #   3. _pcSheetBtn.setAttribute("aria-disabled"  — caught (regex)
+        #   4. getElementById('pc-sheet-btn')
+        #        .setAttribute('aria-disabled', ...)     — caught (regex)
+        #
+        # Forms 3 and 4 were missed by the first version of this replacement
+        # (one exact single-quoted string) and are why the regex exists.
+        #
+        # Still not covered, and not worth a lexer to cover:
+        #   - an alias: `const b = _pcSheetBtn; b.setAttribute('aria-disabled', …)`
+        #   - a property write: `_pcSheetBtn.ariaDisabled = 'true'`
+        #   - any other receiver expression — `.closest(…)`, a NodeList loop,
+        #     an element handed in as a function parameter
+        #   - a computed attribute name: `setAttribute('aria-' + 'disabled', …)`
+        #
+        # That residue is the price of not reading prose as code. The browser
+        # harness can assert the rendered attribute directly if any of it ever
+        # matters — that is a DOM question, and it is the right tool for it.
         self.assertNotIn('aria-disabled', self._footer())
-        # Counted rather than assertNotIn'd against MARKUP: a failing
-        # assertNotIn prints its whole haystack, and the haystack here is the
-        # 2.5MB template — the same undiagnosable failure TemplateAssertions
-        # exists to avoid. The needle is already the whole diagnosis.
-        js_write = "_pcSheetBtn.setAttribute('aria-disabled'"
+        # findall, not assertNotIn against MARKUP: a failing assertNotIn prints
+        # its whole haystack, and the haystack here is the 2.5MB template — the
+        # same undiagnosable failure TemplateAssertions exists to avoid. The
+        # matched text is the whole diagnosis and it goes in the message.
+        hits = self.ARIA_DISABLED_WRITE.findall(MARKUP)
         self.assertEqual(
-            MARKUP.count(js_write), 0,
-            f"{js_write!r} appears in the template. `disabled` already carries "
-            "that accessible state; a second source of truth for it has to be "
-            "kept in sync by hand.")
+            hits, [],
+            f"{hits} — an aria-disabled write targeting #pc-sheet-btn appears "
+            "in the template. `disabled` already carries that accessible "
+            "state; a second source of truth for it has to be kept in sync by "
+            "hand.")
 
     def test_the_disabled_button_stays_hoverable(self):
         # #stage-btn:disabled and #dm-help-btn:disabled both set

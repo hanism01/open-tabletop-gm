@@ -67,9 +67,11 @@ def test_unbound_display_offers_neither_control(gm_display, context):
     expect(page.locator("#pc-dice-btn")).not_to_be_visible()
 
 
-def test_bound_player_rolls_without_losing_the_narration(gm_display, context):
+def test_bound_player_opens_the_drawer_without_losing_the_narration(gm_display, context):
     # The whole point of putting the drawer on the full display: the phone view
-    # hides the narration behind the drawer, and this view must not.
+    # hides the narration behind the drawer, and this view must not. (Opening
+    # only — the roll itself is
+    # test_rolling_from_the_badge_drains_the_pending_request.)
     page = gm_display.open(context, "Kara")
     page.click("#pc-dice-btn")
     expect(page.locator("#dice-drawer-panel")).to_be_visible()
@@ -81,7 +83,11 @@ def test_gm_dice_request_reaches_a_bound_full_display(gm_display, context):
     # this is green only if the bound branch un-collapses the panel *and* the
     # badge's visible rule is not scoped to body.input-only. Both were broken
     # while the source-string suite stayed green.
-    gm_display.mod._dice_pending.clear()
+    # Under the module's own lock: a live /stream thread reads this dict while
+    # holding it. Atomic under the GIL today, but this is the repo's first
+    # browser test and it sets the pattern for the next one.
+    with gm_display.mod._dice_pending_lock:
+        gm_display.mod._dice_pending.clear()
     page = gm_display.open(context, "Kara")
     _gm_dice_request(gm_display, "Kara")
     expect(page.locator("#dice-request-badge")).to_be_visible()
@@ -90,7 +96,11 @@ def test_gm_dice_request_reaches_a_bound_full_display(gm_display, context):
 def test_rolling_from_the_badge_drains_the_pending_request(gm_display, context):
     # Server-side assertion in the shape test_remote_player_console.py already
     # uses, but reached through the UI: badge → Open → Roll.
-    gm_display.mod._dice_pending.clear()
+    # Under the module's own lock: a live /stream thread reads this dict while
+    # holding it. Atomic under the GIL today, but this is the repo's first
+    # browser test and it sets the pattern for the next one.
+    with gm_display.mod._dice_pending_lock:
+        gm_display.mod._dice_pending.clear()
     page = gm_display.open(context, "Kara")
     request_id = _gm_dice_request(gm_display, "Kara")
     snapshot = gm_display.mod._dice_pending_snapshot()
@@ -113,6 +123,13 @@ def test_sheet_button_stays_disabled_with_an_identity_but_no_sheet_data(gm_displ
     # state where `who` is truthy and `ready` is not, so an override keyed on
     # `who` alone shows up here and nowhere else.
     page = gm_display.open(context, "Kara")
+    # Review F1: the binding is a *precondition* of this test, not scenery.
+    # Unbound, the assertion below is still green — but it is then exercising
+    # `who === ''`, and the `if (who) _pcSheetBtn.disabled = false;` mutation
+    # this test exists to catch stops reddening it. So if the identity path
+    # ever regresses, this must fail here rather than keep passing about
+    # nothing.
+    assert page.evaluate("() => GM_IDENTITY") == "Kara"
     assert page.evaluate("() => document.getElementById('pc-sheet-btn').disabled") is True
 
 
@@ -124,7 +141,17 @@ def test_the_disabled_sheet_button_can_still_be_hovered(gm_display, context):
     # selector scan tried to answer by reading CSS text and got wrong in both
     # directions. getComputedStyle answers it outright.
     page = gm_display.open(context, "Kara")
-    expect(page.locator("#pc-sheet-btn")).to_be_disabled()
+    assert page.evaluate("() => GM_IDENTITY") == "Kara"          # review F1
+    button = page.locator("#pc-sheet-btn")
+    # Review F2: the visibility assertion is what makes the rest of this test
+    # mean what its name says. getComputedStyle resolves pointer-events through
+    # the cascade whether or not the element is rendered, and to_be_disabled()
+    # does not require a box — so on an unbound page, where #input-panel is
+    # still collapsed and the button has no box at all, both of the assertions
+    # below pass while saying nothing about hit-testing. A computed `auto` on
+    # an element that is not laid out is not a hoverable button.
+    expect(button).to_be_visible()
+    expect(button).to_be_disabled()
     pointer_events = page.evaluate(
         "() => getComputedStyle(document.getElementById('pc-sheet-btn')).pointerEvents")
     assert pointer_events != "none", (

@@ -24,6 +24,16 @@ import tokens  # noqa: E402
 # unit tests use (TUNNEL in test_full_display_controls.py) and exactly what a
 # real cloudflared player request carries. Set on the browser context, so the
 # page document, the EventSource and every fetch carry it.
+#
+# Budget note for whoever adds more bound page loads here: _rate_key() returns
+# this header when it is present, so *every* bound page in this module shares
+# one rate-limit bucket, and _rate_ok allows 20 writes per 60s (_RATE_MAX /
+# _RATE_WINDOW in gm-display-app.py). Each bound load POSTs /narration-pref on
+# its own, and a roll POSTs /player-input/dice. Today that is 6 writes across
+# the module. Past 20 within a minute the excess starts coming back 429 — and
+# /narration-pref failing is silent in the page, so the symptom would be a
+# confusing assertion failure somewhere else, not a visible error. Give each
+# bound page its own CF-Connecting-IP if this module ever grows that far.
 TUNNEL_HEADERS = {"CF-Connecting-IP": "203.0.113.9"}
 
 
@@ -120,4 +130,7 @@ def gm_display():
     finally:
         server.shutdown()
         thread.join(timeout=5)
+        # shutdown() only stops the accept loop; without this the listening
+        # socket stays open for the life of the pytest process.
+        server.server_close()
         tmp.cleanup()
