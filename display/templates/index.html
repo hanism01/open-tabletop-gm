@@ -6354,16 +6354,26 @@ function _buildCharTabs(players) {
 const _pcSheetBtn = document.getElementById('pc-sheet-btn');
 const _pcDiceBtn  = document.getElementById('pc-dice-btn');
 
+// The one readiness rule, and the only place it is written. `who` is the
+// character this browser would open a sheet for; `ready` is whether that sheet
+// can actually open. openSheet early-returns with a console.warn when
+// _playerData has no entry for the name, and _playerData stays empty until
+// updateStats merges the first SSE `stats` frame — forever, if the DM never
+// ran /gm load. Both syncs that matter run before any frame arrives, so
+// without this gate the button is a silent dead click on first load.
+//
+// Shared rather than duplicated on purpose. The sync and the click handler
+// both need it, and two copies could drift; the drift that matters is silent,
+// because a sync enabling on a looser rule than the handler accepts is exactly
+// the dead click this control has now been fixed for twice.
+function _sheetTargetFor() {
+  const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
+  return { who, ready: !!(who && _playerData[who]) };
+}
+
 function _syncPlayerControls() {
   if (!_pcSheetBtn || !_pcDiceBtn) return;
-  const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
-  // Enabled only when the sheet can actually open. openSheet early-returns
-  // with a console.warn when _playerData has no entry for the name, and
-  // _playerData stays empty until updateStats merges the first SSE `stats`
-  // frame — forever, if the DM never ran /gm load. Both syncs that matter run
-  // before any frame arrives, so without this gate the button is a silent
-  // dead click for every player on first load.
-  const ready = !!(who && _playerData[who]);
+  const { who, ready } = _sheetTargetFor();
   _pcSheetBtn.disabled = !ready;
   // The reason, delivered on two channels. `title` reaches a hovering mouse
   // user, but tooltip rendering on a *disabled* control is at the UA's
@@ -6374,8 +6384,11 @@ function _syncPlayerControls() {
   // voice control depends on). Deliberately not aria-disabled: `disabled`
   // already maps to that accessible state, and duplicating a native attribute
   // in ARIA does nothing for tooltip delivery while adding a second source of
-  // truth. #pc-sheet-btn:disabled also declines `pointer-events: none` (which
-  // #stage-btn:disabled sets) precisely so the tooltip stays reachable.
+  // truth. One standing constraint on the CSS side: #pc-sheet-btn:disabled must
+  // not gain `pointer-events: none` (which #stage-btn:disabled does set), and
+  // no broader rule may hand it one, because that suppresses hit-testing and
+  // with it any tooltip. That omission started out incidental; it is a
+  // requirement now, and a test pins it.
   const reason = ready ? `Open ${who}'s character sheet`
                : who  ? `No sheet data for ${who} yet — the DM has not run /gm load`
                       : 'Pick a character tab first';
@@ -6393,10 +6406,11 @@ function _syncPlayerControls() {
 if (_pcSheetBtn) {
   _pcSheetBtn.addEventListener('click', e => {
     e.stopPropagation();
-    // Re-derives the sync's gate rather than trusting the button's attribute
-    // state, so this can never reach openSheet's warn-and-return.
-    const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
-    if (who && _playerData[who]) openSheet(who);
+    // Re-derives through the shared helper rather than trusting the button's
+    // attribute state, so this can never reach openSheet's warn-and-return —
+    // and cannot disagree with the sync about what "openable" means.
+    const { who, ready } = _sheetTargetFor();
+    if (ready) openSheet(who);
   });
 }
 if (_pcDiceBtn) {

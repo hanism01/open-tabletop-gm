@@ -561,10 +561,16 @@ class TemplateAssertions:
     """
 
     def assertInRegion(self, needle, anchor, span=800):
-        at = MARKUP.find(anchor)
-        if at == -1:
-            self.fail(f"region anchor {anchor!r} is gone from the template; "
-                      f"expected {needle!r} somewhere after it")
+        # Uniqueness first. MARKUP.find takes the first match, so a future
+        # duplicate anchor would silently window the wrong region and the
+        # assertion would report on code it was never about — the same
+        # silent-mistarget class _pad_body and _bind_derivation guard against.
+        count = MARKUP.count(anchor)
+        if count != 1:
+            self.fail(f"region anchor {anchor!r} appears {count} times in the "
+                      f"template; expected exactly one. Expected {needle!r} "
+                      f"in its region.")
+        at = MARKUP.index(anchor)
         region = MARKUP[at:at + span]
         if needle in region:
             return
@@ -594,12 +600,33 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
     def test_dice_button_is_hidden_when_the_pad_was_never_initialised(self):
         self.assertIn("_pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';", MARKUP)
 
+    HELPER = "function _sheetTargetFor() {"
+
     def test_sheet_button_resolves_who_and_excludes_everybody(self):
         # 'Everybody' is a staging alias, not a character: openSheet('Everybody')
         # hits its _playerData guard and dead-clicks.
         self.assertInRegion(
             "const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');",
-            self.SYNC)
+            self.HELPER, span=300)
+
+    def test_the_readiness_rule_is_written_exactly_once(self):
+        # Review D1. Two copies — one in the sync, one in the click handler —
+        # could drift, and the drift that matters is silent: a sync that
+        # enables on a looser rule than the handler accepts is the dead click
+        # this control has been fixed for twice. Counting, not just asserting
+        # presence, is what makes a re-duplication fail here.
+        self.assertEqual(MARKUP.count("_playerData[who]"), 1)
+        self.assertEqual(
+            MARKUP.count("const who = GM_IDENTITY || "
+                         "(_selectedChar !== 'Everybody' ? _selectedChar : '');"), 1)
+        self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
+                            self.HELPER, span=300)
+
+    def test_both_the_sync_and_the_handler_go_through_the_helper(self):
+        self.assertEqual(MARKUP.count("const { who, ready } = _sheetTargetFor();"), 2)
+        self.assertInRegion("const { who, ready } = _sheetTargetFor();", self.SYNC, span=300)
+        self.assertInRegion("const { who, ready } = _sheetTargetFor();",
+                            "_pcSheetBtn.addEventListener('click'", span=400)
 
     def test_sheet_button_ships_disabled(self):
         # Review M1: the fail-safe default. Between HTML parse and the first
@@ -607,8 +634,11 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # click, and it would stay that way permanently if anything threw
         # earlier in the inline script. #pc-dice-btn already got this right
         # with style="display:none". The sync enables it when data is real.
-        self.assertInRegion('<button id="pc-sheet-btn" type="button" disabled',
-                            '<div id="input-footer">', span=600)
+        # Windowed by the footer slice itself rather than a fixed span: the
+        # button sat 551 chars past the <div id="input-footer"> anchor, so one
+        # more comment line would have broken a span=600 window and failed for
+        # the wrong reason (review D4).
+        self.assertIn('<button id="pc-sheet-btn" type="button" disabled', self._footer())
 
     def test_the_static_disabled_state_carries_its_own_explanation(self):
         # If the script never runs, the shipped attributes are all the user
@@ -624,8 +654,9 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # SSE `stats` frame, and stays empty forever if the DM never ran
         # /gm load — while both syncs that matter (the top-level one and the
         # one after the pad-init block) run before any frame arrives.
-        self.assertInRegion("const ready = !!(who && _playerData[who]);", self.SYNC)
-        self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC)
+        self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
+                            self.HELPER, span=300)
+        self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC, span=300)
 
     REASON = "const reason = ready ?"
 
@@ -653,20 +684,68 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # accessible state; ARIA-in-HTML's first rule is to use the native
         # attribute, and adding aria-disabled beside it changes nothing about
         # tooltip delivery — the actual M2 concern — while adding a second
-        # source of truth to keep in sync. Asserted against the attribute and
-        # setAttribute spellings, not the bare token: the comment recording
-        # this decision names aria-disabled and should not trip its own test.
-        self.assertNotIn('aria-disabled=', MARKUP)
-        self.assertNotIn("setAttribute('aria-disabled'", MARKUP)
-        self.assertNotIn('setAttribute("aria-disabled"', MARKUP)
+        # source of truth to keep in sync.
+        #
+        # Scoped to this control (review D2). A template-wide ban would red on
+        # a future custom widget that legitimately needs aria-disabled, under a
+        # test whose name is entirely about the sheet button.
+        self.assertNotIn('aria-disabled', self._footer())
+        sync = MARKUP[MARKUP.index(self.SYNC):MARKUP.index("\n}\n", MARKUP.index(self.SYNC))]
+        self.assertNotIn("setAttribute('aria-disabled'", sync)
+        self.assertNotIn('setAttribute("aria-disabled"', sync)
 
     def test_the_disabled_button_stays_hoverable(self):
         # #stage-btn:disabled and #dm-help-btn:disabled both set
-        # pointer-events: none, which would suppress the tooltip entirely.
-        # This one deliberately does not.
+        # pointer-events: none, which suppresses hit-testing and with it any
+        # tooltip. This rule deliberately does not.
+        #
+        # The paired assertNotIn this replaced was dead (review D3): it named
+        # the same rule text including its closing brace, so the assertIn above
+        # already failed if anything was inserted. It also could not see a
+        # pointer-events: none arriving from a *different* rule, which is what
+        # test_no_pointer_events_none_rule_can_reach_the_sheet_button covers.
         self.assertIn("#pc-sheet-btn:disabled { opacity: 0.35; cursor: default; }", MARKUP)
-        self.assertNotIn("#pc-sheet-btn:disabled { opacity: 0.35; cursor: default; "
-                         "pointer-events: none; }", MARKUP)
+
+    # Every compound selector of a `pointer-events: none` rule must be anchored
+    # on an id or class (so a bare `button:disabled`, `:disabled` or `*` fails
+    # here), and must not name #pc-sheet-btn or any of its ancestors. This is an
+    # approximation, stated rather than hidden: it does not parse CSS, and a
+    # selector like `[id^="pc-"]` would slip through. It does catch the two
+    # realistic ways a broad rule reaches this button.
+    SHEET_BTN_ANCESTORS = ("#pc-sheet-btn", "#input-footer", "#message-dock",
+                           "#player-console", "#input-body", "#input-panel")
+
+    @staticmethod
+    def _pointer_events_none_selectors():
+        style = MARKUP[MARKUP.index("<style>"):MARKUP.index("</style>")]
+        out, idx = [], 0
+        while True:
+            idx = style.find("pointer-events: none", idx)
+            if idx == -1:
+                return out
+            brace = style.rfind("{", 0, idx)
+            starts = [style.rfind("}", 0, brace) + 1,
+                      style.rfind("*/", 0, brace) + 2,
+                      style.rfind(";", 0, brace) + 1,
+                      style.rfind("<style>", 0, brace) + len("<style>")]
+            out.append(" ".join(style[max(starts):brace].split()))
+            idx += 1
+
+    def test_no_pointer_events_none_rule_can_reach_the_sheet_button(self):
+        selector_lists = self._pointer_events_none_selectors()
+        self.assertGreater(len(selector_lists), 0, "selector scan found nothing — it is broken")
+        for selector_list in selector_lists:
+            for compound in selector_list.split(","):
+                compound = compound.strip()
+                self.assertTrue(
+                    "#" in compound or "." in compound,
+                    f"`pointer-events: none` on an un-anchored selector {compound!r}; "
+                    "it could match #pc-sheet-btn and kill its tooltip")
+                for ancestor in self.SHEET_BTN_ANCESTORS:
+                    self.assertNotIn(
+                        ancestor, compound,
+                        f"`pointer-events: none` on {compound!r} reaches #pc-sheet-btn "
+                        "(directly or through an ancestor) and kills its tooltip")
 
     def test_player_data_is_declared_above_the_sync(self):
         # `const _playerData = {}` — reading it from _syncPlayerControls before
@@ -686,8 +765,8 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # Re-derives the same gate as the sync rather than trusting the
         # button's attribute state, so a click that somehow lands before or
         # against a stale sync still cannot reach openSheet's warn-and-return.
-        self.assertInRegion("if (who && _playerData[who]) openSheet(who);",
-                            "_pcSheetBtn.addEventListener('click'")
+        self.assertInRegion("if (ready) openSheet(who);",
+                            "_pcSheetBtn.addEventListener('click'", span=500)
 
     def test_both_click_handlers_stop_propagation(self):
         # Review finding 2: the reason the brief gave for these calls — that a
