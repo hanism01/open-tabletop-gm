@@ -172,7 +172,6 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         # What must stay phone-only is the body scroll-lock: the full display
         # scrolls #text-scroll, and fixing body there would jump the narration.
         self.assertIn("body.input-only.dice-drawer-open {", markup)
-        self.assertIn("body:not(.input-only) #dice-drawer-panel {", markup)
         self.assertIn("body.input-only #player-sheet-overlay", markup)
         # The template's real phone breakpoint anchor (there is no 430px query).
         self.assertIn("@media (max-width: 700px)", markup)

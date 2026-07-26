@@ -2222,7 +2222,7 @@
   @keyframes dice-drawer-slide-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
   #dice-drawer.open #dice-pad { display: block; }
 
-  /* ── Phone dice pad (visible only in input-only view) ────────────────── */
+  /* ── Dice pad (serves both the phone input view and the full display) ── */
   #dice-pad { display: none; }
   #dice-pad .dp-row {
     display: flex;
@@ -3205,11 +3205,11 @@
   </section>
 </div>
 
-<!-- Phone-only dice drawer; serves both free rolls (FAB) and GM-requested rolls (badge). -->
+<!-- Dice drawer, shared by both views; serves both free rolls (FAB) and GM-requested rolls (badge). -->
 <div id="dice-drawer" role="presentation" aria-hidden="true">
   <section id="dice-drawer-panel" role="dialog" aria-modal="true" aria-label="Dice roller">
     <button id="dice-drawer-close" type="button" aria-label="Close dice roller">✕</button>
-    <!-- Phone-only dice pad (shown by ?view=input) -->
+    <!-- Dice pad, shared by both views (phone: ?view=input; full display: drawer opened by FAB/badge) -->
     <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
       <div class="dp-row">
