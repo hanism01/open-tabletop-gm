@@ -218,3 +218,37 @@ documentation rather than duplicating entire guides.
   and deletion rules until there is a concrete need.
 
 _Full SME notes captured in session scratchpad `ux-sme-review.md` at time of writing._
+
+---
+
+## Follow-ups from the `feat/full-display-player-controls` pre-merge review (2026-07-26)
+
+- **`_playerData` prototype-key lookups in the SRD-modal delegate.** `index.html:5578`
+  (`const pd = _openSheetName && _playerData[_openSheetName];`) is the same unguarded
+  bracket-lookup shape that `Object.hasOwn` closed at `openSheet` (`:5178`) and
+  `_sheetTargetFor` (`:6443`). It was left out of scope deliberately, but the safety
+  argument recorded at the time was wrong: `closeSheet()` (`:5501-5503`) only toggles the
+  `.open` class and never clears `#sheet-content.innerHTML`, so a previously rendered
+  sheet's `[data-srd-name]` elements stay live in the DOM, and `_openSheetName = name`
+  (`:5172`) is assigned *before* the guard runs — so a failed `openSheet('__proto__')`
+  still overwrites it, with no fresh render required. Low reachability (needs console
+  execution, or a roster entry literally named `__proto__`), but it is the same defect,
+  not a different one.
+- **`_playerData[p.name]` / `_playerData[name]` in the roster merge** (`index.html:5694-5709`)
+  is the same shape keyed off server-controlled roster data. Never stress-tested for
+  whether a roster entry named `__proto__` can pollute the object through bracket
+  assignment. Pre-existing.
+- **Retire the device-approval layer.** `_pending_devices` / `_approved_devices` /
+  `X-DND-Device` is off by default, auto-approves anything reachable, and `stage_input`
+  already bypasses it for cookie-holding players. Once the character picker lands, every
+  device holds a cookie and the layer is fully dead for players — it would then only ever
+  fire for the cookieless local console, which is auto-approved anyway. Deletion candidate.
+- **Claims are never reconciled against the roster.** `RevocationStore.active()` is keyed
+  by lowercase character name and nothing checks those keys against the campaign's current
+  roster. Renaming a PC orphans their claim. Invisible today; becomes a visible "X is
+  taken" against a character who no longer exists once the picker ships.
+- **`test_remote_player_console.py:68` pins a source expression, not a claim.** It asserts
+  `"return { ok: true, html: _renderMarkdown(await res.text()) };"` verbatim. This is the
+  branch's only test broken by a pure refactor, and re-pinning it to the new expression
+  re-armed it. The claim it means to make — markdown is converted and the overlay paints
+  it — is stable; the expression is not. Worth re-anchoring.
