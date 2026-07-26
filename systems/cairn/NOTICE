@@ -1,0 +1,23 @@
+This system module is derived from:
+
+  Cairn, Second Edition
+  Written by Yochai Gal — newschoolrevolution.com
+  Source text: https://cairnrpg.com/second-edition/
+  Source files: https://github.com/yochaigal/cairn
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+License (CC BY-SA 4.0):
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+CC BY-SA 4.0 requires attribution to Yochai Gal and requires that adaptations
+be distributed under the same license. Accordingly, the rules text in
+`systems/cairn/system.md` — an adaptation of the Cairn 2e SRD — is licensed
+under CC BY-SA 4.0, NOT under the project's AGPL-3.0-or-later.
+
+This differs from `systems/brp/`, whose ORC License permits concurrent
+AGPL-3.0-or-later licensing. ShareAlike does not, so this module's rules text
+is not sublicensed under the AGPL. The non-text parts of this module
+(`ui.json`, `__init__.py`), which contain no Cairn rules text, remain under the
+project's AGPL-3.0-or-later.
+
+Cairn is not affiliated with and does not endorse open-tabletop-gm.

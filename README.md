@@ -483,3 +483,19 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide and the contribution l
 [AGPL-3.0-or-later](LICENSE). Copyright (c) 2026 Neural Initiative LLC.
 
 Self-hosting and modification are explicitly welcome — fork, run, change as you like. The AGPL specifically protects against re-hosting this as a closed-source SaaS without sharing modifications back. For most users this distinction never matters.
+
+### Third-party game content
+
+The AGPL covers this project's own code and prose. Some system modules under
+`systems/` adapt third-party rules text and carry their own terms, which apply
+in addition to — or in place of — the AGPL:
+
+| Module | Source | Terms |
+|--------|--------|-------|
+| `systems/brp/` | Basic Roleplaying, Chaosium Inc. | ORC License, concurrent with AGPL-3.0-or-later — see [NOTICE](systems/brp/NOTICE) |
+| `systems/cairn/` | Cairn 2e SRD, Yochai Gal | CC BY-SA 4.0 **only** — ShareAlike, not sublicensed under the AGPL. See [NOTICE](systems/cairn/NOTICE) |
+
+Generated third-party datasets under `systems/*/data/` are untracked and never
+distributed with this repo; only the builder scripts and source pins are
+committed. Rebuilding them fetches from each source's own documented,
+license-compatible location.
