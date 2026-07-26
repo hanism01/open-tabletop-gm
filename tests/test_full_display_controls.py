@@ -990,3 +990,11 @@ class StopPropagationHasARealTarget(unittest.TestCase):
         self.assertEqual(MARKUP.count("document.addEventListener('click', () => {"), 2)
         self.assertIn("document.querySelectorAll('.tts-voice-menu')"
                       ".forEach(m => { m.hidden = true; });", MARKUP)
+
+
+class StreamIdentityAndModePredicate(unittest.TestCase):
+    def test_explicit_view_full_beats_a_char_param(self):
+        self.assertIn("_qp.get('view') !== 'full' &&", MARKUP)
+
+    def test_full_display_button_keeps_the_binding(self):
+        self.assertIn("url.searchParams.set('view', 'full');", MARKUP)

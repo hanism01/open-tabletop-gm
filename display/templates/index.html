@@ -7264,7 +7264,11 @@ connect();
 // _initDicePad as opts.bind, which is the pad's only source of a binding.
 {
   const _qp = new URLSearchParams(location.search);
-  const _inputMode = _qp.get('view') === 'input' || _qp.has('char') || _qp.has('character');
+  // ?char= alone still implies the phone view, so hand-typed short URLs keep
+  // working. An explicit view=full overrides it, which is what lets a player
+  // hold a binding in the URL while reading the narration.
+  const _inputMode = _qp.get('view') === 'input'
+    || (_qp.get('view') !== 'full' && (_qp.has('char') || _qp.has('character')));
   if (_inputMode) {
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
@@ -7328,7 +7332,7 @@ function _modeSwitcherCachePlayers(players) {
 
 function _initModeSwitcher(inputMode) {
   if (inputMode) {
-    // Input-view: drop a "Full Display" button that strips query params
+    // Input-view: drop a "Full Display" button that keeps the binding
     const btn = document.createElement('button');
     btn.id = 'full-mode-btn';
     btn.type = 'button';
@@ -7336,10 +7340,14 @@ function _initModeSwitcher(inputMode) {
     btn.textContent = '👁 Full Display';
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      // Strip ?view, ?char, ?character — keep any other harmless params
       const url = new URL(window.location.href);
-      ['view', 'char', 'character'].forEach(k => url.searchParams.delete(k));
-      window.location.href = url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '');
+      const bound = (url.searchParams.get('char') || url.searchParams.get('character') || '').trim();
+      url.search = '';
+      // Keep the binding so a reload does not lose it, and mark the view so
+      // the predicate above does not drag us straight back to phone mode.
+      if (bound) url.searchParams.set('char', bound);
+      url.searchParams.set('view', 'full');
+      window.location.href = url.toString();
     });
     document.body.appendChild(btn);
     return;
