@@ -6232,7 +6232,24 @@ const _playerRosterEl  = document.getElementById('player-roster');
 const _playerSheetOverlay = document.getElementById('player-sheet-overlay');
 const _playerSheetClose = document.getElementById('player-sheet-close');
 
-let _selectedChar     = 'Everybody';
+// ── Who is this browser? ──────────────────────────────────────────────
+// Resolved once, in precedence order:
+//   1. window.GM_BOUND_CHARACTER — the server's answer, from the gm_session
+//      cookie set by /j/<token>. Authoritative; the cookie is httponly so
+//      this injected constant is the only channel.
+//   2. ?char= / ?character= — for players who were handed a URL rather than
+//      an invite link.
+//   3. "" — the GM console and the shared display have no identity.
+// localStorage['gm_player_name'] is deliberately NOT consulted here. It is
+// unvalidated free text from #dp-name and is shared across every tab on this
+// origin, so a GM who opened phone mode once would have this display claim to
+// be that character from then on. It remains the phone's fallback inside
+// _initDicePad, where the whole tab is already bound to one player.
+const _idParams = new URLSearchParams(location.search);
+const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()
+                 || (_idParams.get('char') || _idParams.get('character') || '').trim();
+
+let _selectedChar     = GM_IDENTITY || 'Everybody';
 let _stagedData       = {};   // {char: {text, ready, timestamp}} — mirror of server state
 let _autorunThreshold = null; // null = use player count; int = explicit threshold
 let _playerSheetInvoker = null;
@@ -6248,6 +6265,10 @@ _inputPanelHdr.addEventListener('click', () => {
 // ── Build character tabs from stats players array ─────────────────
 function _buildCharTabs(players) {
   const names = ['Everybody', ...(players || []).map(p => p.name).filter(Boolean)];
+  // A bound player's tabs open on themselves, not on Everybody. Only once the
+  // roster actually confirms the name — a stale ?char= for someone who left
+  // the party should not select a tab that does not exist.
+  if (GM_IDENTITY && names.includes(GM_IDENTITY)) _selectedChar = GM_IDENTITY;
   _charTabs.innerHTML = '';
   names.forEach(name => {
     const btn = document.createElement('button');
@@ -7166,9 +7187,14 @@ async function _loadCharacterSheet(name) {
   const bodyEl = document.getElementById('cp-body');
   if (!status || !bodyEl) return;
   const request = ++_playerSheetRequest;
-  // Resolve the character: prefer ?char= / ?character=, then localStorage / typed name.
+  // Resolve the character: the passed name, then ?char= / ?character=, then
+  // GM_IDENTITY (the server's answer), then localStorage / typed name last —
+  // the server's answer outranks localStorage because GM_IDENTITY comes from
+  // a validated, httponly session cookie, while localStorage['gm_player_name']
+  // is unvalidated free text shared across every tab on this origin.
   const _qpCh = new URLSearchParams(location.search);
   const ch = (name || _qpCh.get('char') || _qpCh.get('character')
+              || GM_IDENTITY
               || localStorage.getItem('gm_player_name')
               || '').trim();
   if (!ch) {

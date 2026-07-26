@@ -83,5 +83,41 @@ class BoundCharacterInjection(unittest.TestCase):
         self.assertIn("\\u003c", line)
 
 
+MARKUP = (REPO / "display" / "templates" / "index.html").read_text()
+
+
+class IdentityResolver(unittest.TestCase):
+    def test_identity_prefers_server_value_over_url(self):
+        self.assertIn("const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()", MARKUP)
+        self.assertIn("|| (_idParams.get('char') || _idParams.get('character') || '').trim()", MARKUP)
+
+    def test_identity_never_reads_localstorage_player_name(self):
+        # The identity resolver itself must never consult gm_player_name —
+        # it is unvalidated free text shared across every tab on this origin.
+        resolver_start = MARKUP.index("const _idParams")
+        resolver_end = MARKUP.index("let _selectedChar", resolver_start)
+        resolver_block = MARKUP[resolver_start:resolver_end]
+        self.assertNotIn("gm_player_name", resolver_block)
+
+    def test_render_player_roster_only_called_under_input_only_guard(self):
+        # The remaining gm_player_name read lives in _loadCharacterSheet's
+        # localStorage fallback, reachable only via a roster chip built by
+        # renderPlayerRoster. That call must stay gated to the phone view —
+        # this would fail if someone later called it unguarded.
+        call_idx = MARKUP.index("renderPlayerRoster(payload.stats.players)")
+        preceding = MARKUP[:call_idx]
+        guard_idx = preceding.rfind("if (document.body.classList.contains('input-only'))")
+        self.assertNotEqual(guard_idx, -1, "renderPlayerRoster call is not preceded by an input-only guard")
+        between = MARKUP[guard_idx:call_idx]
+        # Nothing closes the guard's block before the call itself.
+        self.assertNotIn('}', between)
+
+    def test_selected_char_seeds_from_identity(self):
+        self.assertIn("let _selectedChar     = GM_IDENTITY || 'Everybody';", MARKUP)
+
+    def test_char_tabs_activate_the_identity_tab(self):
+        self.assertIn("if (GM_IDENTITY && names.includes(GM_IDENTITY)) _selectedChar = GM_IDENTITY;", MARKUP)
+
+
 if __name__ == "__main__":
     unittest.main()
