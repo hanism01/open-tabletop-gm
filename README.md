@@ -54,6 +54,7 @@ systems/<your-system>/
 | D&D 5e | `systems/dnd5e/` | Full support — scripts, SRD dataset, character tools |
 | Pathfinder 2e (Remaster) | `systems/pf2e/` | Rules module and display manifest; builds a private local lookup dataset from Foundry VTT's public GitHub source |
 | Starfinder 2e | `systems/sf2e/` | Rules module and display manifest; builds a private local lookup dataset from Foundry VTT's public GitHub source |
+| Cairn 2e | `systems/cairn/` | Rules module and display manifest |
 
 The Pathfinder 2e and Starfinder 2e lookup datasets are generated on your machine from Foundry VTT's public GitHub source and are not bundled with this repository (the generated files are git-ignored). This is reference data for running a table, not an official rules distribution or a replacement for Foundry. Build and query each module locally:
 

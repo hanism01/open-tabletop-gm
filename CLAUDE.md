@@ -2,7 +2,7 @@
 
 TTRPG game-master tool: an LLM runs the game. Python 3.12 / Flask + SSE backend
 (`display/`), vanilla JS/CSS/HTML front end (no React, no build step), pytest.
-System modules live in `systems/` (dnd5e, pf2e, sf2e, paizo2e, brp). Version in
+System modules live in `systems/` (dnd5e, pf2e, sf2e, paizo2e, brp, cairn). Version in
 `VERSION`.
 
 ## Source control: GitHub, NOT Gitea
