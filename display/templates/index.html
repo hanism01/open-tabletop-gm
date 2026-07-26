@@ -3214,9 +3214,9 @@
 <div id="dice-drawer" role="presentation" aria-hidden="true">
   <section id="dice-drawer-panel" role="dialog" aria-modal="true" aria-label="Dice roller">
     <button id="dice-drawer-close" type="button" aria-label="Close dice roller">✕</button>
-    <!-- Dice pad, shared by both views: the phone opens it via ?view=input;
-         the full display opens it via the Dice button (Task 5) for a bound
-         player. -->
+    <!-- Dice pad, shared by both views: the phone opens it via the FAB or
+         the DM-request badge. Nothing opens it on the full display yet —
+         Task 5 adds the control that will. -->
     <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
       <div class="dp-row">
@@ -6264,8 +6264,10 @@ const _playerSheetClose = document.getElementById('player-sheet-close');
 // localStorage['gm_player_name'] is deliberately NOT consulted here. It is
 // unvalidated free text from #dp-name and is shared across every tab on this
 // origin, so a GM who opened phone mode once would have this display claim to
-// be that character from then on. It remains the phone's fallback inside
-// _initDicePad, where the whole tab is already bound to one player.
+// be that character from then on. Inside _initDicePad the identity instead
+// comes from the call site (the URL param, or an explicit opts.bind passed
+// by the full display's GM_IDENTITY check below); localStorage is reachable
+// only as a last resort on the phone path, when neither is set.
 const _idParams = new URLSearchParams(location.search);
 const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()
                  || (_idParams.get('char') || _idParams.get('character') || '').trim();
@@ -7098,7 +7100,7 @@ connect();
   // display (GM console, shared screen) initialises nothing — it has no
   // character to roll as, and installing the request handlers there would
   // badge the GM with their own requests.
-  else if (GM_IDENTITY) { _initDicePad({ requests: true }); }
+  else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }
   _initModeSwitcher(_inputMode);
 }
 
@@ -7366,10 +7368,16 @@ function _initDicePad(opts) {
   if (!reel || !rollBtn) return;
 
   // Character binding: ?char=Piper (or ?character=Piper) locks this phone to
-  // that player. Without the param the phone falls back to a free-text name
-  // + localStorage. Short form (?char=) is preferred for hand-typed URLs.
+  // that player. Without the param, the caller's opts.bind (the full
+  // display passes its own resolved identity) is the fallback; only if
+  // neither is set does the pad fall back to a free-text name +
+  // localStorage. Short form (?char=) is preferred for hand-typed URLs.
+  // The server-injected identity is never read here directly — a remote
+  // player who opens /?view=input takes this same function on the phone
+  // branch with no opts.bind, and binding them to that identity there
+  // would be a phone behaviour change, which is off-limits.
   const _qp = new URLSearchParams(location.search);
-  const _bound = (_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24);
+  const _bound = (_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) || ((opts && opts.bind) || '').trim().slice(0, 24);
   if (_bound) {
     nameEl.value = _bound;
     nameEl.classList.add('locked');

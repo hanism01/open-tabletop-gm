@@ -101,8 +101,15 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertLess(markup.index('id="dice-drawer"'), markup.index('id="dice-pad"'))
         # The pad is initialised again (Task 2 removed the call pending this drawer).
         # Task 4 gates the DM-request handlers behind an options argument, so
-        # the phone's call site now passes { requests: true } explicitly.
-        self.assertIn("_initDicePad({ requests: true });", markup)
+        # the phone's call site now passes { requests: true } explicitly. The
+        # full display's call site (guarded by GM_IDENTITY) passes an
+        # equivalent-looking call, so slice out just the phone-mode branch —
+        # otherwise this assertion would stay green even if the phone's own
+        # call were deleted, on the strength of the full-display call alone.
+        phone_start = markup.index("if (_inputMode) {")
+        phone_end = markup.index("\n  }", phone_start)
+        phone_block = markup[phone_start:phone_end]
+        self.assertIn("_initDicePad({ requests: true });", phone_block)
         self.assertNotIn("body.input-only #dice-pad { display: none !important; }", markup)
 
     def test_request_arrival_records_and_badges_without_hijacking(self):

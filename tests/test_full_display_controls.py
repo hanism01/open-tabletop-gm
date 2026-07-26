@@ -157,12 +157,76 @@ class DiceRequestGating(unittest.TestCase):
         self.assertIn("if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;", body)
 
     def test_full_display_inits_the_pad_only_with_an_identity(self):
-        self.assertIn("else if (GM_IDENTITY) { _initDicePad({ requests: true }); }", MARKUP)
+        self.assertIn(
+            "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }",
+            MARKUP)
+
+    @staticmethod
+    def _enclosing_if_guard(text, idx):
+        # Walk backward from idx tracking brace depth; return the trimmed
+        # header text of the nearest enclosing `{`, or None if idx sits at
+        # top level (not nested in any block at all).
+        depth = 0
+        i = idx
+        while i > 0:
+            i -= 1
+            ch = text[i]
+            if ch == '}':
+                depth += 1
+            elif ch == '{':
+                if depth == 0:
+                    line_start = text.rfind('\n', 0, i) + 1
+                    return text[line_start:i].strip()
+                depth -= 1
+        return None
 
     def test_gm_display_without_identity_installs_no_request_handlers(self):
         # The unbound full display must not call _initDicePad at all: a GM who
         # requests a roll would otherwise lock and badge their own screen.
-        self.assertNotIn("_initDicePad();", MARKUP)
+        # Assert the actual claim (every call site is guarded), not just one
+        # literal unguarded spelling — a differently-formatted unconditional
+        # call would have slipped past assertNotIn("_initDicePad();", ...).
+        calls = []
+        idx = 0
+        while True:
+            idx = MARKUP.find("_initDicePad(", idx)
+            if idx == -1:
+                break
+            line_start = MARKUP.rfind('\n', 0, idx) + 1
+            line_end = MARKUP.index('\n', idx)
+            line = MARKUP[line_start:line_end].strip()
+            if not line.startswith("function _initDicePad"):
+                calls.append((idx, line))
+            idx = line_end
+        self.assertTrue(calls, "expected at least one _initDicePad(...) call site")
+        for idx, line in calls:
+            if line.startswith("if (") or line.startswith("else if ("):
+                continue  # single-line `if (...) { _initDicePad(...); }` form
+            header = self._enclosing_if_guard(MARKUP, idx)
+            self.assertIsNotNone(header, f"unconditional top-level call: {line!r}")
+            self.assertTrue(
+                header.startswith("if (") or header.startswith("else if ("),
+                f"call is nested but not behind an if/else-if guard: {header!r}")
+
+    def test_full_display_call_site_passes_bind(self):
+        # HIGH 1 fix: the identity must come from the call site, not from an
+        # unconditional read of GM_IDENTITY inside _initDicePad itself.
+        self.assertIn(
+            "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }",
+            MARKUP)
+
+    def test_binding_derivation_consults_the_bind_option(self):
+        self.assertIn(
+            "(_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) "
+            "|| ((opts && opts.bind) || '').trim().slice(0, 24);",
+            MARKUP)
+
+    def test_binding_derivation_never_reads_gm_identity_directly(self):
+        # A remote player who opens /?view=input (phone branch, no `bind`
+        # passed) must not be silently bound to GM_IDENTITY — only the URL
+        # param or an explicit opts.bind may set _bound inside _initDicePad.
+        body = self._pad_body()
+        self.assertNotIn("GM_IDENTITY", body)
 
 
 class DiceBadgeDrawerStacking(unittest.TestCase):
