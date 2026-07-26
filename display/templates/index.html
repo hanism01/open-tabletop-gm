@@ -7368,16 +7368,22 @@ function _initDicePad(opts) {
   if (!reel || !rollBtn) return;
 
   // Character binding: ?char=Piper (or ?character=Piper) locks this phone to
-  // that player. Without the param, the caller's opts.bind (the full
-  // display passes its own resolved identity) is the fallback; only if
+  // that player, truncated to 24 chars — pre-existing phone behaviour, left
+  // as-is. Without the param, the caller's opts.bind (the full display
+  // passes its own resolved identity) is the fallback, untruncated: it is
+  // already validated and length-bounded server-side (_CHAR_NAME_RE allows
+  // up to 50 chars), so slicing it here would desync #dp-name's value from
+  // the identity used elsewhere on the full display (_selectedChar,
+  // _loadCharacterSheet) and make a GM's dice request for the full name
+  // silently miss a truncated match on the player's own screen. Only if
   // neither is set does the pad fall back to a free-text name +
-  // localStorage. Short form (?char=) is preferred for hand-typed URLs.
-  // The server-injected identity is never read here directly — a remote
-  // player who opens /?view=input takes this same function on the phone
-  // branch with no opts.bind, and binding them to that identity there
-  // would be a phone behaviour change, which is off-limits.
+  // localStorage. The server-injected identity is never read here
+  // directly — a remote player who opens /?view=input takes this same
+  // function on the phone branch with no opts.bind, and binding them to
+  // that identity there would be a phone behaviour change, which is
+  // off-limits.
   const _qp = new URLSearchParams(location.search);
-  const _bound = (_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) || ((opts && opts.bind) || '').trim().slice(0, 24);
+  const _bound = (_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) || ((opts && opts.bind) || '').trim();
   if (_bound) {
     nameEl.value = _bound;
     nameEl.classList.add('locked');

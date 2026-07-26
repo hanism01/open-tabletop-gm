@@ -143,8 +143,18 @@ class DiceDrawerOutsidePhoneView(unittest.TestCase):
 
 class DiceRequestGating(unittest.TestCase):
     def _pad_body(self):
+        # Bounded to the function's own extent, not to end-of-file: the
+        # function currently happens to be the last thing in the script, so
+        # slicing to end-of-file happened to equal its body — but Task 5 is
+        # expected to add full-display code (very likely referencing
+        # GM_IDENTITY) after this point in the same <script> block, which
+        # must NOT be swept into this slice. Every `}` inside the function
+        # body is indented (nested); only the function's own closing brace
+        # sits alone on an unindented line, so that's an unambiguous landmark
+        # for its true end.
         start = MARKUP.index("function _initDicePad")
-        return MARKUP[start:]
+        end = MARKUP.index("\n}\n", start) + len("\n}\n")
+        return MARKUP[start:end]
 
     def test_init_takes_a_requests_option(self):
         self.assertIn("function _initDicePad(opts) {", MARKUP)
@@ -162,32 +172,60 @@ class DiceRequestGating(unittest.TestCase):
             MARKUP)
 
     @staticmethod
-    def _enclosing_if_guard(text, idx):
-        # Walk backward from idx tracking brace depth; return the trimmed
-        # header text of the nearest enclosing `{`, or None if idx sits at
-        # top level (not nested in any block at all).
-        depth = 0
-        i = idx
-        while i > 0:
-            i -= 1
-            ch = text[i]
-            if ch == '}':
-                depth += 1
-            elif ch == '{':
-                if depth == 0:
-                    line_start = text.rfind('\n', 0, i) + 1
-                    return text[line_start:i].strip()
-                depth -= 1
+    def _guard_condition_for_call(text, call_idx):
+        # Return the condition text of the `if (...)`/`else if (...)` that
+        # structurally governs the _initDicePad( call at call_idx, or None
+        # if the call is not nested in one. Scoped by indentation, not by
+        # counting braces: this codebase's convention (relied on already by
+        # the MEDIUM-4 fix in test_remote_player_console.py) is that a
+        # block's own closing `}` sits alone on a line at the same
+        # indentation as the `if` that opened it, one level shallower than
+        # the block's contents. Walking upward and stopping at the first
+        # strictly-shallower line — rather than counting every `{`/`}`
+        # character in the file — cannot be confused by a brace character
+        # sitting inside an unrelated string/comment (that line's *content*
+        # is irrelevant; only its indentation and whether it is `if (`/
+        # `else if (`/a bare `}` is examined), which is what made the
+        # previous brace-depth walk fragile.
+        line_start = text.rfind('\n', 0, call_idx) + 1
+        line_end = text.index('\n', call_idx)
+        call_line = text[line_start:line_end]
+        indent = len(call_line) - len(call_line.lstrip(' '))
+        trimmed = call_line.strip()
+        if trimmed.startswith("if (") or trimmed.startswith("else if ("):
+            # Guard and call share one line: `if (X) { _initDicePad(...); }`.
+            return trimmed[trimmed.index('(') + 1:trimmed.index(') {')]
+
+        pos = line_start
+        while pos > 0:
+            prev_end = pos - 1
+            prev_start = text.rfind('\n', 0, prev_end) + 1
+            prev_line = text[prev_start:prev_end]
+            prev_trimmed = prev_line.strip()
+            if prev_trimmed:
+                prev_indent = len(prev_line) - len(prev_line.lstrip(' '))
+                if prev_indent < indent:
+                    if prev_trimmed == '}':
+                        return None  # the enclosing block already closed
+                    if prev_trimmed.startswith("if (") or prev_trimmed.startswith("else if ("):
+                        return prev_trimmed[prev_trimmed.index('(') + 1:prev_trimmed.index(') {')]
+                    return None  # shallower, but not a guard or a close
+            pos = prev_start
         return None
 
     def test_gm_display_without_identity_installs_no_request_handlers(self):
         # The unbound full display must not call _initDicePad at all: a GM who
         # requests a roll would otherwise lock and badge their own screen.
-        # Assert the actual claim (every call site is guarded), not just one
-        # literal unguarded spelling — a differently-formatted unconditional
-        # call would have slipped past assertNotIn("_initDicePad();", ...).
-        calls = []
+        #
+        # Every `_initDicePad(` call site (excluding the function definition
+        # itself) must be governed by an `if`/`else if` whose *condition*
+        # names _inputMode or GM_IDENTITY specifically — not just "some
+        # enclosing if", which a Task 5 shape like `if (fab) { _initDicePad
+        # (...) }` would satisfy without actually gating on view/identity.
+        # See _guard_condition_for_call for why this is indentation-scoped
+        # rather than a brace-depth walk.
         idx = 0
+        calls = []
         while True:
             idx = MARKUP.find("_initDicePad(", idx)
             if idx == -1:
@@ -196,19 +234,21 @@ class DiceRequestGating(unittest.TestCase):
             line_end = MARKUP.index('\n', idx)
             line = MARKUP[line_start:line_end].strip()
             if not line.startswith("function _initDicePad"):
-                calls.append((idx, line))
+                calls.append(idx)
             idx = line_end
         self.assertTrue(calls, "expected at least one _initDicePad(...) call site")
-        for idx, line in calls:
-            if line.startswith("if (") or line.startswith("else if ("):
-                continue  # single-line `if (...) { _initDicePad(...); }` form
-            header = self._enclosing_if_guard(MARKUP, idx)
-            self.assertIsNotNone(header, f"unconditional top-level call: {line!r}")
+        for call_idx in calls:
+            condition = self._guard_condition_for_call(MARKUP, call_idx)
+            self.assertIsNotNone(
+                condition,
+                f"_initDicePad( call at offset {call_idx} is not governed by "
+                f"any if/else-if guard")
             self.assertTrue(
-                header.startswith("if (") or header.startswith("else if ("),
-                f"call is nested but not behind an if/else-if guard: {header!r}")
+                "_inputMode" in condition or "GM_IDENTITY" in condition,
+                f"_initDicePad( call at offset {call_idx} is guarded by "
+                f"{condition!r}, which names neither _inputMode nor GM_IDENTITY")
 
-    def test_full_display_call_site_passes_bind(self):
+    def test_full_display_inits_the_pad_only_with_an_identity(self):
         # HIGH 1 fix: the identity must come from the call site, not from an
         # unconditional read of GM_IDENTITY inside _initDicePad itself.
         self.assertIn(
@@ -218,8 +258,24 @@ class DiceRequestGating(unittest.TestCase):
     def test_binding_derivation_consults_the_bind_option(self):
         self.assertIn(
             "(_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) "
-            "|| ((opts && opts.bind) || '').trim().slice(0, 24);",
+            "|| ((opts && opts.bind) || '').trim();",
             MARKUP)
+
+    def test_bind_operand_is_not_truncated(self):
+        # Fix round 2 (Important finding): _CHAR_NAME_RE permits names up to
+        # 50 chars and scripts/gm_invite.py applies no length cap when
+        # minting a join token, so opts.bind (the full display's
+        # server-authoritative identity) must survive intact. Truncating it
+        # here would desync #dp-name's value from the GM_IDENTITY used
+        # elsewhere (_selectedChar, _loadCharacterSheet), so a GM request for
+        # the player's full name would silently fail to match on their own
+        # screen — the exact harm HIGH 1 was about, reintroduced via a
+        # different path.
+        derivation_start = MARKUP.index("const _bound = (_qp.get('char')")
+        derivation_end = MARKUP.index(";", derivation_start) + 1
+        derivation = MARKUP[derivation_start:derivation_end]
+        bind_operand_start = derivation.index("opts.bind")
+        self.assertNotIn(".slice(", derivation[bind_operand_start:])
 
     def test_binding_derivation_never_reads_gm_identity_directly(self):
         # A remote player who opens /?view=input (phone branch, no `bind`
