@@ -47,6 +47,21 @@ def _gm_dice_request(gm_display, character, label="Stealth"):
 
 
 def test_unbound_display_offers_neither_control(gm_display, context):
+    # Runtime state only. This does NOT cover the shipped attributes
+    # (`disabled` on the button tag, `style="display:none"` on #pc-dice-btn),
+    # and cannot: by the time the page has loaded, _syncPlayerControls() has
+    # already re-derived `disabled = !ready`, and #input-panel is still
+    # collapsed so nothing in #input-body is visible whatever its own style
+    # says. Mutation-checked both ways — deleting either shipped attribute
+    # leaves this test green.
+    #
+    # So test_sheet_button_ships_disabled in tests/test_full_display_controls.py
+    # is not redundant with this one and must not be deleted as such: it is the
+    # only cover for the window between HTML parse and the first sync, which is
+    # also the permanent state if anything earlier in the inline script throws.
+    # What this test does catch is the runtime regression — a sync that enables
+    # the button with no identity, or a call site that inits the pad for an
+    # unbound display (both mutation-checked red).
     page = gm_display.open(context)
     expect(page.locator("#pc-sheet-btn")).to_be_disabled()
     expect(page.locator("#pc-dice-btn")).not_to_be_visible()
