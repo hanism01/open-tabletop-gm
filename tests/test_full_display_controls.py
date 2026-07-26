@@ -513,10 +513,17 @@ class InputPanelExpandsForABoundPlayer(unittest.TestCase):
         self.assertLess(footer_at, panel_block_end)
 
     def test_the_bound_full_display_expands_the_panel(self):
-        # Pinned as part of FULL_DISPLAY_CALL_SITE (asserted by
-        # DiceRequestGating.test_full_display_inits_the_pad_only_with_an_identity),
-        # restated here so the *reason* survives a future re-statement of that
-        # constant: without this the Sheet and Dice buttons are unreachable.
+        # Against the template. The previous form asserted
+        # FULL_DISPLAY_CALL_SITE contained its own text, which passes against
+        # an empty template — the same tautology caught in the arrow test.
+        at = NORM_MARKUP.index(_norm("else if (GM_IDENTITY) {"))
+        self.assertIn("if (ip) ip.classList.remove('collapsed');",
+                      NORM_MARKUP[at:at + 300])
+
+    def test_the_call_site_constant_still_demands_the_uncollapse(self):
+        # Deliberately a self-check on the constant, and named as one: it is
+        # what stops a future edit loosening FULL_DISPLAY_CALL_SITE back to a
+        # bare _initDicePad call, which would silently un-pin the template.
         self.assertIn("if (ip) ip.classList.remove('collapsed');",
                       _norm(FULL_DISPLAY_CALL_SITE))
 
@@ -542,7 +549,33 @@ class DiceRequestBadgeVisibility(unittest.TestCase):
         self.assertIn("#dice-request-badge[hidden] { display: none !important; }", MARKUP)
 
 
-class PlayerControlButtons(unittest.TestCase):
+class TemplateAssertions:
+    """assertIn against MARKUP, windowed to a named region.
+
+    Mixin, deliberately not a TestCase — a bare assertIn against the 2.5MB
+    template prints the whole template on failure, which is not a diagnosable
+    message. Same reasoning as DiceRequestGating._assert_call_site above; this
+    is the general form for pins that are not call sites. Confirmed live: the
+    N4 mutation last round printed
+    `AssertionError: 'const ready = ...' not found in '<!DOCTYPE html>...'`.
+    """
+
+    def assertInRegion(self, needle, anchor, span=800):
+        at = MARKUP.find(anchor)
+        if at == -1:
+            self.fail(f"region anchor {anchor!r} is gone from the template; "
+                      f"expected {needle!r} somewhere after it")
+        region = MARKUP[at:at + span]
+        if needle in region:
+            return
+        self.fail(f"not found in the {span}-char region after {anchor!r}.\n"
+                  f"  expected: {needle}\n"
+                  f"  region:\n    {region}")
+
+
+class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
+    SYNC = "function _syncPlayerControls() {"
+
     def _footer(self):
         start = MARKUP.index('<div id="input-footer">')
         return MARKUP[start:MARKUP.index("</div>", start)]
@@ -564,7 +597,26 @@ class PlayerControlButtons(unittest.TestCase):
     def test_sheet_button_resolves_who_and_excludes_everybody(self):
         # 'Everybody' is a staging alias, not a character: openSheet('Everybody')
         # hits its _playerData guard and dead-clicks.
-        self.assertIn("const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');", MARKUP)
+        self.assertInRegion(
+            "const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');",
+            self.SYNC)
+
+    def test_sheet_button_ships_disabled(self):
+        # Review M1: the fail-safe default. Between HTML parse and the first
+        # _syncPlayerControls() the button would otherwise be live and dead-
+        # click, and it would stay that way permanently if anything threw
+        # earlier in the inline script. #pc-dice-btn already got this right
+        # with style="display:none". The sync enables it when data is real.
+        self.assertInRegion('<button id="pc-sheet-btn" type="button" disabled',
+                            '<div id="input-footer">', span=600)
+
+    def test_the_static_disabled_state_carries_its_own_explanation(self):
+        # If the script never runs, the shipped attributes are all the user
+        # gets, so they must not claim the sheet is one click away.
+        footer = self._footer()
+        self.assertIn('title="No character sheet available yet"', footer)
+        self.assertIn('aria-label="Sheet — no character sheet available yet"', footer)
+        self.assertNotIn('title="Open your character sheet"', footer)
 
     def test_sheet_button_is_disabled_until_the_character_has_sheet_data(self):
         # Review finding 3: enabling on a truthy GM_IDENTITY alone is a silent
@@ -572,12 +624,49 @@ class PlayerControlButtons(unittest.TestCase):
         # SSE `stats` frame, and stays empty forever if the DM never ran
         # /gm load — while both syncs that matter (the top-level one and the
         # one after the pad-init block) run before any frame arrives.
-        self.assertIn("const ready = !!(who && _playerData[who]);", MARKUP)
-        self.assertIn("_pcSheetBtn.disabled = !ready;", MARKUP)
+        self.assertInRegion("const ready = !!(who && _playerData[who]);", self.SYNC)
+        self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC)
+
+    REASON = "const reason = ready ?"
 
     def test_the_disabled_sheet_button_says_why_it_is_disabled(self):
-        self.assertIn("Pick a character tab first", MARKUP)
-        self.assertIn("No sheet data for ", MARKUP)
+        self.assertInRegion("Pick a character tab first", self.REASON, span=400)
+        self.assertInRegion("No sheet data for ", self.REASON, span=400)
+
+    def test_the_reason_reaches_the_accessible_name_not_only_the_tooltip(self):
+        # Review M2: `title` on a *disabled* control is rendered at the UA's
+        # discretion, so it cannot be the only channel. A disabled button's
+        # accessible name is not discretionary — assistive tech still reaches
+        # it and reads it — so the same string goes there too.
+        self.assertInRegion("_pcSheetBtn.title = reason;", self.REASON, span=400)
+        self.assertInRegion(
+            "_pcSheetBtn.setAttribute('aria-label', `Sheet — ${reason}`);",
+            self.REASON, span=400)
+
+    def test_the_accessible_name_still_starts_with_the_visible_label(self):
+        # WCAG 2.5.3 label-in-name: voice control users say "click Sheet", so
+        # an aria-label that does not contain the visible label breaks them.
+        self.assertInRegion("`Sheet — ${reason}`", self.REASON, span=400)
+
+    def test_aria_disabled_is_not_duplicated_onto_the_native_attribute(self):
+        # Considered and declined. `disabled` already maps to the same
+        # accessible state; ARIA-in-HTML's first rule is to use the native
+        # attribute, and adding aria-disabled beside it changes nothing about
+        # tooltip delivery — the actual M2 concern — while adding a second
+        # source of truth to keep in sync. Asserted against the attribute and
+        # setAttribute spellings, not the bare token: the comment recording
+        # this decision names aria-disabled and should not trip its own test.
+        self.assertNotIn('aria-disabled=', MARKUP)
+        self.assertNotIn("setAttribute('aria-disabled'", MARKUP)
+        self.assertNotIn('setAttribute("aria-disabled"', MARKUP)
+
+    def test_the_disabled_button_stays_hoverable(self):
+        # #stage-btn:disabled and #dm-help-btn:disabled both set
+        # pointer-events: none, which would suppress the tooltip entirely.
+        # This one deliberately does not.
+        self.assertIn("#pc-sheet-btn:disabled { opacity: 0.35; cursor: default; }", MARKUP)
+        self.assertNotIn("#pc-sheet-btn:disabled { opacity: 0.35; cursor: default; "
+                         "pointer-events: none; }", MARKUP)
 
     def test_player_data_is_declared_above_the_sync(self):
         # `const _playerData = {}` — reading it from _syncPlayerControls before
@@ -594,7 +683,11 @@ class PlayerControlButtons(unittest.TestCase):
         self.assertIn("_syncPlayerControls();", MARKUP[idx:idx + 200])
 
     def test_sheet_button_opens_the_resolved_character(self):
-        self.assertIn("if (who) openSheet(who);", MARKUP)
+        # Re-derives the same gate as the sync rather than trusting the
+        # button's attribute state, so a click that somehow lands before or
+        # against a stale sync still cannot reach openSheet's warn-and-return.
+        self.assertInRegion("if (who && _playerData[who]) openSheet(who);",
+                            "_pcSheetBtn.addEventListener('click'")
 
     def test_both_click_handlers_stop_propagation(self):
         # Review finding 2: the reason the brief gave for these calls — that a
@@ -709,15 +802,22 @@ class CollapseArrowStaysInSync(unittest.TestCase):
             idx = MARKUP.find("classList.remove('collapsed')", idx)
             if idx == -1:
                 break
-            sites.append(MARKUP[idx:idx + 120])
+            # (preceding text, the site itself) — the discriminator has to come
+            # from *before* the site. Review M3: the previous version keyed on
+            # "_initDicePad({ bind: GM_IDENTITY });" appearing in a fixed
+            # 120-char window after the site, which both branches satisfy once
+            # the arrow line is gone (removing it pulls the call into the
+            # window), so swapping which branch carries the arrow still passed.
+            sites.append((MARKUP[max(0, idx - 300):idx], MARKUP[idx:idx + 160]))
             idx += 1
         self.assertEqual(len(sites), 4, f"expected four un-collapse sites, found {len(sites)}")
-        without_arrow = [s for s in sites if "_inputArrow.textContent = '▼';" not in s]
+        without_arrow = [s for s in sites if "_inputArrow.textContent = '▼';" not in s[1]]
         self.assertEqual(
             len(without_arrow), 1,
             "exactly one un-collapse — the phone branch, whose header is hidden — "
             f"may skip the arrow update; found {len(without_arrow)}: {without_arrow}")
-        self.assertIn("_initDicePad({ bind: GM_IDENTITY });", without_arrow[0])
+        self.assertIn("document.body.classList.add('input-only');", without_arrow[0][0],
+                      "the un-collapse that skips the arrow is not the phone branch")
 
 
 class StopPropagationHasARealTarget(unittest.TestCase):

@@ -3203,7 +3203,13 @@
           <!-- Player controls: reach the sheet and the dice roller without
                leaving the narration. Both are hidden in the phone view, which
                has its own roster chips and dice FAB. -->
-          <button id="pc-sheet-btn" type="button" title="Open your character sheet">Sheet</button>
+          <!-- Ships disabled: the fail-safe default. Between parse and the
+               first _syncPlayerControls() there is no _playerData, and if
+               anything throws earlier in this script that state is permanent.
+               The sync enables it once the sheet can genuinely open. -->
+          <button id="pc-sheet-btn" type="button" disabled
+                  title="No character sheet available yet"
+                  aria-label="Sheet — no character sheet available yet">Sheet</button>
           <button id="pc-dice-btn" type="button" style="display:none" title="Open the dice roller">Dice</button>
           <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
           <button id="stage-btn">Stage</button>
@@ -6359,9 +6365,22 @@ function _syncPlayerControls() {
   // dead click for every player on first load.
   const ready = !!(who && _playerData[who]);
   _pcSheetBtn.disabled = !ready;
-  _pcSheetBtn.title = ready ? `Open ${who}'s character sheet`
-                    : who  ? `No sheet data for ${who} yet — the DM has not run /gm load`
-                           : 'Pick a character tab first';
+  // The reason, delivered on two channels. `title` reaches a hovering mouse
+  // user, but tooltip rendering on a *disabled* control is at the UA's
+  // discretion, so it cannot be the only one. A disabled button's accessible
+  // name is not discretionary — assistive tech still reaches it and reads it —
+  // so the same string goes there. Prefixed with the visible label so the
+  // accessible name still starts with "Sheet" (WCAG 2.5.3 label-in-name, which
+  // voice control depends on). Deliberately not aria-disabled: `disabled`
+  // already maps to that accessible state, and duplicating a native attribute
+  // in ARIA does nothing for tooltip delivery while adding a second source of
+  // truth. #pc-sheet-btn:disabled also declines `pointer-events: none` (which
+  // #stage-btn:disabled sets) precisely so the tooltip stays reachable.
+  const reason = ready ? `Open ${who}'s character sheet`
+               : who  ? `No sheet data for ${who} yet — the DM has not run /gm load`
+                      : 'Pick a character tab first';
+  _pcSheetBtn.title = reason;
+  _pcSheetBtn.setAttribute('aria-label', `Sheet — ${reason}`);
   _pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';
 }
 
@@ -6374,8 +6393,10 @@ function _syncPlayerControls() {
 if (_pcSheetBtn) {
   _pcSheetBtn.addEventListener('click', e => {
     e.stopPropagation();
+    // Re-derives the sync's gate rather than trusting the button's attribute
+    // state, so this can never reach openSheet's warn-and-return.
     const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
-    if (who) openSheet(who);
+    if (who && _playerData[who]) openSheet(who);
   });
 }
 if (_pcDiceBtn) {
