@@ -1356,6 +1356,11 @@ def index():
         narrator_voice=_read_narrator_voice(),
         tts_available=(_tts is not None),
         ui_manifest=_load_ui_manifest(),
+        # Authenticated players reach "/" directly: /j/<token> ends in
+        # redirect("/"), so the session cookie is already set by the time this
+        # renders. The cookie is httponly, so the template is the only channel
+        # by which the page can learn its own identity. Empty for GM/local.
+        bound_character=_bound_character(""),
     )
 
 

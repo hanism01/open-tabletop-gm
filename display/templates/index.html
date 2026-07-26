@@ -14,6 +14,12 @@
      without a manifest. See systems/UI-MANIFEST.md. -->
 <script>window.GM_UI_MANIFEST = {{ ui_manifest|safe }};</script>
 
+<!-- Session identity, injected by Flask. Non-empty only for a player who
+     arrived through a /j/<token> invite link; "" for the GM and for local
+     console browsers. The gm_session cookie is httponly, so this is the only
+     way the page can know who it is. tojson quotes and escapes it. -->
+<script>window.GM_BOUND_CHARACTER = {{ bound_character|tojson }};</script>
+
 <!-- Theme anti-FOUC. Runs synchronously before the stylesheet parses so the
      correct data-theme attribute is on <html> before any rule resolves —
      prevents a dark→light or light→dark flash on every load. Three states:
