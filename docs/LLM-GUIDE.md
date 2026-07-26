@@ -97,7 +97,7 @@ Two critical issues found during testing that affect all gguf Qwen3 variants wit
 }
 ```
 
-**Thinking mode:** Qwen3 enables chain-of-thought reasoning by default. The `/no_think` token in `no_think.md` suppresses this when injected via the OpenCode instructions array. Confirmed working — `reasoning_tokens` drops to effectively zero in non-streaming inference. Streaming behavior should be verified via LM Studio debug logs on first use.
+**Thinking mode:** Qwen3 enables chain-of-thought reasoning by default. Chain-of-thought can be suppressed via an OpenCode configuration token, which may reduce reasoning overhead in non-streaming inference. Streaming behavior should be verified via LM Studio debug logs on first use.
 
 **Verdict:** Functional once both issues above are addressed, but the 2-3 minute prefill on every new session is a real usability cost. Worth testing if you have the patience; otherwise Mistral Small 24B is a more comfortable default for gguf local inference with this skill.
 

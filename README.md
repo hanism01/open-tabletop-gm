@@ -95,8 +95,6 @@ Point OpenCode at this skill by adding the following to your OpenCode config (`~
 ```json
 {
   "instructions": [
-    "/path/to/open-tabletop-gm/no_think.md",
-    "/path/to/open-tabletop-gm/paths.md",
     "/path/to/open-tabletop-gm/SKILL-commands.md",
     "/path/to/open-tabletop-gm/SKILL-branches.md"
   ]
@@ -125,6 +123,25 @@ For a local model via LM Studio, add your provider config:
   }
 }
 ```
+
+### Running under another host (Claude Code, Codex, …)
+
+"LLM-agnostic" refers to the **model** — the framework runs on any provider OpenCode
+routes to. The **host** (the agent CLI that loads the skill) is a separate axis, and
+OpenCode is the only one with a documented config slot above. The skill itself is just
+Markdown instructions plus dependency-free Python, so any host that can inject those
+files as system context will run it:
+
+- **Claude Code** — a dedicated, more deeply integrated port lives at
+  [`claude-dnd-skill`](https://github.com/Bobby-Gray/claude-dnd-skill). Prefer it over
+  wiring this repo in by hand.
+- **Codex / other agents** — load `SKILL-commands.md` and `SKILL-branches.md` through
+  that host's instruction mechanism (e.g. `AGENTS.md`). `SKILL.md` is read from disk on
+  first session load, same as under OpenCode.
+
+Nothing here registers a native `/gm` command. `/gm ...` is plain text that the loaded
+instructions interpret, so it only works once a host has those files in context — it
+will not autocomplete or appear in any host's command list.
 
 ### 5. Start a campaign
 
@@ -401,8 +418,6 @@ open-tabletop-gm/
   SKILL.md              ← GM persona and craft (read at session load, not startup)
   SKILL-commands.md     ← command signature reference (always in context)
   SKILL-branches.md     ← branch router: maps each command to its procedure (always in context)
-  no_think.md           ← suppresses chain-of-thought preamble on local models
-  paths.md              ← absolute path constants for this installation
   SYSTEM-PORTING.md     ← guide for adding new game systems
   systems/
     dnd5e/              ← D&D 5e reference implementation
