@@ -1,6 +1,7 @@
 """Full-display player controls: server identity injection and markup contracts."""
 import importlib.util
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -84,6 +85,48 @@ class BoundCharacterInjection(unittest.TestCase):
 
 
 MARKUP = (REPO / "display" / "templates" / "index.html").read_text()
+
+
+def _blank(match):
+    # Same length, same line count — offsets into CODE_ONLY still match MARKUP.
+    return "".join("\n" if ch == "\n" else " " for ch in match.group(0))
+
+
+_BLOCK_COMMENT = re.compile(r"<!--.*?-->|/\*.*?\*/", re.S)
+
+
+def _strip_comments(text):
+    """`text` with every comment body blanked out, offsets preserved.
+
+    Needed by any assertion that reasons about *proximity* rather than about
+    an exact string. Prose is the enemy there: the template's comments discuss
+    the very identifiers and attributes those assertions look for, so a scan
+    over raw source can pair a mention in one sentence with a mention in the
+    next and report a defect that does not exist. That is the same
+    substring-collision that got the CSS selector scan deleted in round 4;
+    review round 5 found the aria-disabled scan sitting 78 characters from it.
+
+    `//` after `:` is left alone so a `https://` URL does not swallow the code
+    to its right. Comment *bodies* only — a real occurrence in code survives.
+    """
+    text = _BLOCK_COMMENT.sub(_blank, text)
+    out = []
+    for line in text.split("\n"):
+        cut, idx = None, 0
+        while True:
+            idx = line.find("//", idx)
+            if idx == -1:
+                break
+            if idx == 0 or line[idx - 1] != ":":
+                cut = idx
+                break
+            idx += 2
+        out.append(line if cut is None else line[:cut] + " " * (len(line) - cut))
+    return "\n".join(out)
+
+
+CODE_ONLY = _strip_comments(MARKUP)
+assert len(CODE_ONLY) == len(MARKUP)
 
 
 class IdentityResolver(unittest.TestCase):
@@ -639,11 +682,17 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
                             self.HELPER, until=self.HELPER_END)
 
+    # The click handler's extent, same reasoning as HELPER_END. Its true extent
+    # is 381 chars, so the old span=400 here and span=500 below both ran past
+    # the closing brace into `if (_pcDiceBtn) {` (review round 5).
+    HANDLER = "_pcSheetBtn.addEventListener('click'"
+    HANDLER_END = "\n}\n"
+
     def test_both_the_sync_and_the_handler_go_through_the_helper(self):
         self.assertEqual(MARKUP.count("const { who, ready } = _sheetTargetFor();"), 2)
         self.assertInRegion("const { who, ready } = _sheetTargetFor();", self.SYNC, span=300)
         self.assertInRegion("const { who, ready } = _sheetTargetFor();",
-                            "_pcSheetBtn.addEventListener('click'", span=400)
+                            self.HANDLER, until=self.HANDLER_END)
 
     def test_sheet_button_ships_disabled(self):
         # Review M1: the fail-safe default. Between HTML parse and the first
@@ -713,9 +762,17 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # both windows — as a green place to put the attribute. Every
         # occurrence of the attribute anywhere in the template now has to be
         # far from any mention of this button, whatever syntax sets it.
-        idx = MARKUP.find('aria-disabled')
+        #
+        # Over CODE_ONLY, not MARKUP (review round 5). The template's one
+        # occurrence of the attribute today is in the comment above this
+        # rule's own code, 238 chars from a `#pc-sheet-btn:disabled` mention in
+        # a later sentence of the same comment block — 78 chars of prose short
+        # of reddening. Reflowing that paragraph would have failed this test
+        # with a message about a defect that does not exist. A proximity rule
+        # cannot be run over prose that discusses the identifiers it hunts.
+        idx = CODE_ONLY.find('aria-disabled')
         while idx != -1:
-            window = MARKUP[max(0, idx - 160):idx + 160]
+            window = CODE_ONLY[max(0, idx - 160):idx + 160]
             for subject in ('_pcSheetBtn', 'pc-sheet-btn'):
                 self.assertNotIn(
                     subject, window,
@@ -723,7 +780,7 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
                     f"{window}\n"
                     "`disabled` already carries that accessible state; a second "
                     "source of truth for it has to stay in sync by hand.")
-            idx = MARKUP.find('aria-disabled', idx + 1)
+            idx = CODE_ONLY.find('aria-disabled', idx + 1)
 
     def test_the_disabled_button_stays_hoverable(self):
         # #stage-btn:disabled and #dm-help-btn:disabled both set
@@ -758,7 +815,7 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # button's attribute state, so a click that somehow lands before or
         # against a stale sync still cannot reach openSheet's warn-and-return.
         self.assertInRegion("if (ready) openSheet(who);",
-                            "_pcSheetBtn.addEventListener('click'", span=500)
+                            self.HANDLER, until=self.HANDLER_END)
 
     def test_both_click_handlers_stop_propagation(self):
         # Review finding 2: the reason the brief gave for these calls — that a
