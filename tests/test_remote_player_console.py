@@ -66,7 +66,13 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertIn('id="player-sheet-close"', markup)
         self.assertIn("function closePlayerSheet", markup)
         self.assertIn("_loadCharacterSheet(name)", markup)
-        self.assertIn("bodyEl.innerHTML = _renderMarkdown(md)", markup)
+        # The markdown → HTML step moved into _fetchAuthoredSheet, the one
+        # helper both sheet renderers now share, so the overlay's own line is
+        # an assignment from that helper's result rather than a _renderMarkdown
+        # call. Both halves are pinned: the conversion still happens, and the
+        # overlay still paints it into #cp-body.
+        self.assertIn("return { ok: true, html: _renderMarkdown(await res.text()) };", markup)
+        self.assertIn("bodyEl.innerHTML = result.html;", markup)
         self.assertIn("renderPlayerRoster(payload.stats.players)", markup)
 
     def test_player_sheet_overlay_discards_stale_loads_and_restores_modal_state(self):
@@ -100,7 +106,17 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         # The pad markup now lives inside the drawer shell.
         self.assertLess(markup.index('id="dice-drawer"'), markup.index('id="dice-pad"'))
         # The pad is initialised again (Task 2 removed the call pending this drawer).
-        self.assertIn("_initDicePad();", markup)
+        # Task 4b: _initDicePad no longer reads the URL for its binding, so the
+        # phone's call site passes { bind: GM_IDENTITY } (GM_IDENTITY is the one
+        # resolver that reads ?char= / ?character=). The full display's call
+        # site passes the identical argument object under a GM_IDENTITY guard,
+        # so slice out just the phone-mode branch — otherwise this assertion
+        # would stay green even if the phone's own call were deleted, on the
+        # strength of the full-display call alone.
+        phone_start = markup.index("if (_inputMode) {")
+        phone_end = markup.index("\n  }", phone_start)
+        phone_block = markup[phone_start:phone_end]
+        self.assertIn("_initDicePad({ bind: GM_IDENTITY });", phone_block)
         self.assertNotIn("body.input-only #dice-pad { display: none !important; }", markup)
 
     def test_request_arrival_records_and_badges_without_hijacking(self):
@@ -163,11 +179,46 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         self.assertEqual(roll.status_code, 200, roll.get_data(as_text=True))
         self.assertEqual(self.mod._dice_pending_snapshot(), [])
 
+    def test_dice_roll_persists_only_into_this_class_temp_dir(self):
+        # test_dice_request_pending_drains_when_bound_player_rolls posts a real
+        # roll, and /player-input/dice calls _persist_log() + _persist_tail().
+        # Unredirected, _get_log_file() falls back to the repo's gitignored
+        # display/text_log.json — which is the actual generator of the
+        # cross-run pollution ba048a4 had to work around in test_art_display.py
+        # (a non-empty text_log makes /stream emit an extra replay_batch frame
+        # ahead of "stats"). Assert on the resolved paths, not just on the
+        # fallback file: with display/.campaign present, _get_log_file() points
+        # into the campaign directory instead and a file-only check would pass
+        # vacuously on that checkout.
+        real_log = REPO / "display" / "text_log.json"
+        before = real_log.read_bytes() if real_log.exists() else None
+        self._login("Kara")
+        roll = self.client.post(
+            "/player-input/dice", headers=TUNNEL_ORIGIN,
+            data=json.dumps({"character": "Kara", "spec": "1d20", "modifier": 0,
+                             "advantage": "normal"}),
+            content_type="application/json")
+        self.assertEqual(roll.status_code, 200, roll.get_data(as_text=True))
+        log_path = pathlib.Path(self.mod._get_log_file())
+        self.assertTrue(
+            log_path.is_relative_to(self.tmp.name),
+            f"_persist_log wrote outside the test temp dir: {log_path}")
+        # _get_tail_file() is campaign-specific-or-nothing, and CAMP_FILE is
+        # redirected to a path that does not exist, so the tail stays in memory.
+        self.assertIsNone(self.mod._get_tail_file())
+        after = real_log.read_bytes() if real_log.exists() else None
+        self.assertEqual(before, after,
+                         "a roll in this suite rewrote the repo's display/text_log.json")
+
     def test_phone_overlays_stay_scoped_with_close_controls_and_breakpoint(self):
         markup = (REPO / "display" / "templates" / "index.html").read_text()
         # Console + overlay styling is scoped to the phone view, never the GM display.
         self.assertIn("body.input-only #message-dock", markup)
-        self.assertIn("body.input-only #dice-drawer", markup)
+        # The dice drawer is shared with the full display as of the full-display
+        # player controls work, so it is no longer descendant-scoped to the phone.
+        # What must stay phone-only is the body scroll-lock: the full display
+        # scrolls #text-scroll, and fixing body there would jump the narration.
+        self.assertIn("body.input-only.dice-drawer-open {", markup)
         self.assertIn("body.input-only #player-sheet-overlay", markup)
         # The template's real phone breakpoint anchor (there is no 430px query).
         self.assertIn("@media (max-width: 700px)", markup)
@@ -235,6 +286,23 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         cls.mod._REVOCATION = tokens.RevocationStore(directory / ".revoked.json")
         cls.mod._ALLOWED_ORIGINS = {ORIGIN, "http://localhost:5001"}
         cls.mod._GM_SECRET = "test-gm-secret"
+        # /player-input/dice persists the text log and the session tail. Left
+        # alone, _get_log_file() resolves to display/.campaign's campaign dir
+        # or falls back to the repo's gitignored display/text_log.json — real
+        # developer-machine state, and the source of the cross-run pollution
+        # ba048a4 had to work around in test_art_display.py. Redirect both:
+        #   - CAMP_FILE to a path that does not exist, so _get_log_file() takes
+        #     its fallback and _get_tail_file() returns None (tail stays in
+        #     memory; it is campaign-specific-or-nothing by design).
+        #   - _LOG_FALLBACK into this class's temp dir.
+        # _text_log is cleared too: _import_app() ran the module's top-level
+        # _load_log() against the real file before we got here, and without
+        # this the first _persist_log() would copy that content into the temp
+        # file and any log-shaped assertion would inherit it.
+        cls.mod.CAMP_FILE = str(directory / "no-such-campaign-file")
+        cls.mod._LOG_FALLBACK = str(directory / "text_log.json")
+        with cls.mod._text_log_lock:
+            cls.mod._text_log.clear()
         cls.client = cls.mod.app.test_client()
 
     @classmethod

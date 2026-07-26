@@ -1356,6 +1356,20 @@ def index():
         narrator_voice=_read_narrator_voice(),
         tts_available=(_tts is not None),
         ui_manifest=_load_ui_manifest(),
+        # Authenticated players reach "/" directly: /j/<token> ends in
+        # redirect("/"), so the session cookie is already set by the time this
+        # renders. The cookie is httponly, so the template is the only channel
+        # by which the page can learn its own identity. Empty for GM/local.
+        #
+        # _is_local() is checked directly rather than through _bound_character
+        # because the two must diverge here: _gate's un-brick downgrade (which
+        # turns a local browser's "player" role back into "local") only fires
+        # for endpoints outside _PLAYER_ENDPOINTS, and index is in that set, so
+        # it never runs for "/". Sessions last SESSION_TTL_S (30 days) and
+        # there is no logout route, so without this a GM who opens a player's
+        # invite link in their own console browser — just to check it works —
+        # would have their full display bound to that character for a month.
+        bound_character=("" if _is_local() else _bound_character("")),
     )
 
 

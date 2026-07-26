@@ -43,6 +43,24 @@ The `/` route renders for three kinds of caller: an authenticated player (has a 
 - Consumes: `_bound_character(fallback: str = "") -> str` and `_gate`'s `g.identity`, both already present.
 - Produces: `window.GM_BOUND_CHARACTER` — a JS string on every page, `""` when the caller is not an authenticated player. Task 2 reads it.
 
+**As implemented, corrected from the steps below (fix round 2, MEDIUM finding, owner-ruled):**
+`index()` also checks `_is_local()` directly and forces the injected value to
+`""` for a loopback peer, cookie or not. `index` is in `_PLAYER_ENDPOINTS`, so
+`_gate`'s player→local downgrade at `:535` never fires for `/`; sessions last
+30 days with no logout route, so a GM testing a player's invite link in their
+own console browser would otherwise have the full display bound to that
+character for a month. `_bound_character` itself is untouched — every POST
+path still depends on its current behavior; this is a display-only narrowing
+at the `index()` call site. See the design doc's "Open edge" section for the
+full rationale.
+
+**Also correct the Step 1 test code below before running it:** it sets
+`self.app._TOKEN_SECRET = self.secret`, but the app's real module-level
+variable (read by `_resolve_identity`) is `_INVITE_SECRET` — `_TOKEN_SECRET`
+is a typo and does not exist on the module. Use `self.app._INVITE_SECRET =
+self.secret`, matching the pattern already established in
+`tests/test_remote_player_console.py`.
+
 - [ ] **Step 1: Write the failing tests**
 
 Create `tests/test_full_display_controls.py`:
@@ -904,12 +922,12 @@ git commit -m "feat(display): show live stats and the authored sheet in one moda
 
 Two loose ends from the design.
 
-**SSE identity.** `connect()` (`:6883`) derives `_streamChar` from the URL alone (`:6880`), so a player who joined by invite link connects with no `?character=`. `_phone_present` (`gm-display-app.py:987`) therefore stays false for them and the server keeps listing them in `onscreen_targets` (`:2338`). Nothing consumes that field client-side today, so this is inert — but the full display is now a real roll surface, and the server should be able to tell.
+**SSE identity — ALREADY DONE by Task 4b, do not re-implement.** This section's original text claimed `_streamChar` derives from the URL alone, so an invite-link player left `_phone_present` false. Both halves are now false. Task 4b (`ac38686`, `305f052`) deleted the second resolver and made `_streamChar = GM_IDENTITY` (`index.html:7104`), which reads `window.GM_BOUND_CHARACTER` first. Separately, `/stream` (`gm-display-app.py:2691`) funnels its `?character=` through `_bound_character`, which returns the cookie's character outright for `role == "player"` and ignores the argument — so the server already knew. Skip Steps 2's first test, 3 and 4 entirely.
 
 **Input-mode predicate.** `:7040` is `_qp.get('view') === 'input' || _qp.has('char') || _qp.has('character')`, so `?char=Mira&view=full` is dragged back into the phone view. That makes it impossible to keep a binding in the URL while reading narration, which is exactly what this feature is for. Let an explicit `view=full` win, and have the "Full Display" button preserve the character instead of stripping the query string.
 
 **Files:**
-- Modify: `display/templates/index.html:6880`, `:7040`, and the Full Display button's navigation
+- Modify: `display/templates/index.html:7267` (the `_inputMode` predicate) and the Full Display button's navigation in `_initModeSwitcher` (~`:7331`)
 - Test: `tests/test_full_display_controls.py`
 
 **Interfaces:**
@@ -920,7 +938,7 @@ Two loose ends from the design.
 
 Run: `grep -n "Full Display" display/templates/index.html`
 
-Read the surrounding handler. It navigates by stripping query params. You need its exact current lines for Step 4.
+Read the surrounding handler. It navigates by stripping query params. You need its exact current lines for Step 6.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -928,12 +946,6 @@ Append to `tests/test_full_display_controls.py`:
 
 ```python
 class StreamIdentityAndModePredicate(unittest.TestCase):
-    def test_stream_char_falls_back_to_server_identity(self):
-        self.assertIn(
-            "const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim() "
-            "|| (window.GM_BOUND_CHARACTER || '').trim();",
-            MARKUP)
-
     def test_explicit_view_full_beats_a_char_param(self):
         self.assertIn("_qp.get('view') !== 'full' &&", MARKUP)
 
@@ -944,31 +956,13 @@ class StreamIdentityAndModePredicate(unittest.TestCase):
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `python3 -m pytest tests/test_full_display_controls.py::StreamIdentityAndModePredicate -q`
-Expected: FAIL on all three.
+Expected: FAIL on both.
 
-- [ ] **Step 4: Pass identity on the SSE connection**
-
-`_streamChar` is declared at `:6879-6880`, above the `GM_IDENTITY` declaration in the file, so it reads `window.GM_BOUND_CHARACTER` directly rather than depending on declaration order. Replace lines 6879-6880:
-
-```javascript
-const _sp = new URLSearchParams(location.search);
-const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim();
-```
-
-with:
-
-```javascript
-// Phones append ?char=. A player who arrived through /j/<token> has no URL
-// param but does have a server-resolved identity, and the full display is now
-// a real roll surface — so the server needs to know which character is
-// listening here, for _phone_present and dice-request routing.
-const _sp = new URLSearchParams(location.search);
-const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim() || (window.GM_BOUND_CHARACTER || '').trim();
-```
+- [ ] **Step 4: (removed — SSE identity already landed in Task 4b)**
 
 - [ ] **Step 5: Fix the input-mode predicate**
 
-Replace `display/templates/index.html:7040`:
+Replace `display/templates/index.html:7267`:
 
 ```javascript
   const _inputMode = _qp.get('view') === 'input' || _qp.has('char') || _qp.has('character');
@@ -1002,7 +996,7 @@ Using the exact lines found in Step 1, change the handler so that instead of str
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_full_display_controls.py -q`
-Expected: PASS, 30 tests.
+Expected: PASS, 72 tests (70 today plus the 2 new ones).
 
 - [ ] **Step 8: Run the full suite**
 
@@ -1028,15 +1022,15 @@ Confirm, on `http://localhost:5001/`:
 
 ```bash
 git add display/templates/index.html tests/test_full_display_controls.py
-git commit -m "feat(display): carry identity on the SSE stream, let view=full win"
+git commit -m "feat(display): let an explicit view=full beat a char param"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage.** Identity (server) → Task 1. Identity (client, precedence, no localStorage) → Task 2. Controls, including the disabled-Sheet rule → Task 5. Splitting `_initDicePad` → Task 4, done as an options gate rather than a function split; the seam is the three `window._on*` assignments and nothing else crosses it. Unified sheet → Task 6. SSE `?character=` → Task 7. Input-mode predicate → Task 7. Drawer visibility outside the phone view was implied by the spec but not called out; it is Task 3, without which Task 5's Dice button opens an invisible drawer.
+**Spec coverage.** Identity (server) → Task 1. Identity (client, precedence, no localStorage) → Task 2. Controls, including the disabled-Sheet rule → Task 5. Splitting `_initDicePad` → Task 4, done as an options gate rather than a function split; the seam is the three `window._on*` assignments and nothing else crosses it. Unified sheet → Task 6. SSE `?character=` → Task 7, but delivered early by Task 4b; Task 7's copy of it is struck. Input-mode predicate → Task 7. Drawer visibility outside the phone view was implied by the spec but not called out; it is Task 3, without which Task 5's Dice button opens an invisible drawer.
 
 **Type consistency.** `GM_IDENTITY` is a string everywhere. `_initDicePad(opts)` is called with `{ requests: true }` at both call sites; `requests: false` is supported but unused, and `_wantRequests` defaults to true so an argument-less call still behaves as it does today. `_syncPlayerControls()` is defined once in Task 5 and called from three places, all in Task 5. `window._openDiceDrawer` is created in Task 5 Step 3 and read in Task 5 Step 6.
 
-**Ordering.** Task 5 depends on Tasks 2, 3 and 4. Task 3 must precede Task 5 or the Dice button appears to do nothing. Task 7's SSE change reads `window.GM_BOUND_CHARACTER` directly, not `GM_IDENTITY`, because `_streamChar` is declared earlier in the file than the resolver.
+**Ordering.** Task 5 depends on Tasks 2, 3 and 4. Task 3 must precede Task 5 or the Dice button appears to do nothing. This claimed Task 7's SSE change must read `window.GM_BOUND_CHARACTER` directly because `_streamChar` is declared earlier than the resolver. That was wrong: `GM_IDENTITY` is declared ~750 lines *above* `_streamChar`, and Task 4b accordingly set `_streamChar = GM_IDENTITY`.

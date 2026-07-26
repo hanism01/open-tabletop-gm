@@ -175,8 +175,16 @@ plus a connected phone could both answer one dice request. Nothing consumes
 `onscreen_targets` client-side today, so this is inert. The SSE `?character=`
 fix above is what makes the server able to tell the difference when it matters.
 
-One accepted inconsistency: a GM who opens a join link in their console browser
-gets a `/` that claims to be that character, because `index` is in
-`_PLAYER_ENDPOINTS` and so the player→local downgrade at `:535` does not apply.
-This already happens to their POSTs, so the display now merely agrees with the
-server.
+A local browser never gets a bound character, even holding a valid join
+cookie. `index` is in `_PLAYER_ENDPOINTS`, so `_gate`'s player→local downgrade
+at `:535` (which only fires for endpoints outside that set) never runs for
+`/`; sessions last `SESSION_TTL_S` (30 days, `display/tokens.py:26`) and there
+is no logout route. Without a check, a GM who opens a player's invite link in
+their own console browser — to confirm it works — would have their full
+display bound to that character for a month, with no way back short of
+devtools or `scripts/gm_invite.py --revoke`. `index()` therefore checks
+`_is_local()` directly and forces the injected value to `""` for a loopback
+peer, regardless of cookie. This costs nothing for real remote play — a
+player arriving over the tunnel or the LAN is never loopback — and only
+narrows what the display shows; `_bound_character` itself, and every POST
+path that depends on it, is unchanged.
