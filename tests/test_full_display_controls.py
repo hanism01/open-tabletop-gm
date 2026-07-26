@@ -141,5 +141,46 @@ class DiceDrawerOutsidePhoneView(unittest.TestCase):
         self.assertIn("body:not(.input-only) #dice-drawer-panel {", MARKUP)
 
 
+class DiceRequestGating(unittest.TestCase):
+    def _pad_body(self):
+        start = MARKUP.index("function _initDicePad")
+        return MARKUP[start:]
+
+    def test_init_takes_a_requests_option(self):
+        self.assertIn("function _initDicePad(opts) {", MARKUP)
+        self.assertIn("const _wantRequests = !(opts && opts.requests === false);", MARKUP)
+
+    def test_all_three_request_handlers_are_gated(self):
+        body = self._pad_body()
+        self.assertIn("if (_wantRequests) window._onDiceRequest = _applyDiceRequest;", body)
+        self.assertIn("if (_wantRequests) window._onDiceRequestCancelled = _onDiceRequestCancelled;", body)
+        self.assertIn("if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;", body)
+
+    def test_full_display_inits_the_pad_only_with_an_identity(self):
+        self.assertIn("else if (GM_IDENTITY) { _initDicePad({ requests: true }); }", MARKUP)
+
+    def test_gm_display_without_identity_installs_no_request_handlers(self):
+        # The unbound full display must not call _initDicePad at all: a GM who
+        # requests a roll would otherwise lock and badge their own screen.
+        self.assertNotIn("_initDicePad();", MARKUP)
+
+
+class DiceBadgeDrawerStacking(unittest.TestCase):
+    def test_badge_is_suppressed_while_drawer_is_open(self):
+        # #dice-pending-badge is fixed at z-index 60, above the drawer's
+        # z-index 30 backdrop. On the full display, once a bound player's pad
+        # is live, a GM dice request would otherwise float the badge above
+        # the drawer while it's open, reading as a broken modal.
+        self.assertIn(".dice-drawer-open #dice-pending-badge { display: none !important; }", MARKUP)
+
+
+class DpNameLockedAffordance(unittest.TestCase):
+    def test_dp_name_locked_style_is_not_scoped_to_input_only(self):
+        # The readonly attribute (set in JS) blocks editing on every view;
+        # the dimmed affordance should match on the full display too.
+        self.assertIn("#dp-name.locked {", MARKUP)
+        self.assertNotIn("body.input-only #dp-name.locked", MARKUP)
+
+
 if __name__ == "__main__":
     unittest.main()

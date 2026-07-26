@@ -2418,6 +2418,11 @@
     100% { box-shadow: 0 0 22px rgba(0,0,0,0.6), 0 0 0 0   rgba(255,220,140,0); }
   }
   body.input-only #dice-pending-badge { display: none !important; }
+  /* The badge is z-index 60, above the drawer's z-index 30 backdrop. On the
+     full display a bound player can have both live at once: without this,
+     a GM request arriving while the drawer is open floats the badge above
+     it, reading as a broken modal. */
+  .dice-drawer-open #dice-pending-badge { display: none !important; }
 
   /* ── Mode switcher (full-view button + input-view "back to full" button) ── */
   #phone-mode-btn {
@@ -2539,7 +2544,7 @@
     color: #ffd98a;
     font-size: 13px;
   }
-  body.input-only #dp-name.locked {
+  #dp-name.locked {
     opacity: 0.6;
     pointer-events: none;
   }
@@ -3209,7 +3214,9 @@
 <div id="dice-drawer" role="presentation" aria-hidden="true">
   <section id="dice-drawer-panel" role="dialog" aria-modal="true" aria-label="Dice roller">
     <button id="dice-drawer-close" type="button" aria-label="Close dice roller">✕</button>
-    <!-- Dice pad, shared by both views (phone: ?view=input; full display: drawer opened by FAB/badge) -->
+    <!-- Dice pad, shared by both views: the phone opens it via ?view=input;
+         the full display opens it via the Dice button (Task 5) for a bound
+         player. -->
     <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
       <div class="dp-row">
@@ -7084,8 +7091,14 @@ connect();
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
-    _initDicePad();
+    _initDicePad({ requests: true });
   }
+  // Full display: a bound player gets the same pad and the same DM-request
+  // handling, so they can roll without giving up the narration. An unbound
+  // display (GM console, shared screen) initialises nothing — it has no
+  // character to roll as, and installing the request handlers there would
+  // badge the GM with their own requests.
+  else if (GM_IDENTITY) { _initDicePad({ requests: true }); }
   _initModeSwitcher(_inputMode);
 }
 
@@ -7338,7 +7351,12 @@ function _updateDicePendingBadge(snapshot) {
 }
 
 // ── Phone dice pad: server-side roll + slot-machine reveal ───────────────
-function _initDicePad() {
+// opts.requests — install the DM dice-request handlers (badge, prefill, lock).
+// The phone wants them. The full display wants them only for a bound player:
+// on the GM's own screen they would fire on every request the GM issues, so
+// the GM would lock their own pad and badge themselves.
+function _initDicePad(opts) {
+  const _wantRequests = !(opts && opts.requests === false);
   const reel    = document.getElementById('dp-reel');
   const rollBtn = document.getElementById('dp-roll');
   const modVal  = document.getElementById('dp-mod-val');
@@ -7680,7 +7698,7 @@ function _initDicePad() {
     showDiceRequestBadge(req);
     if (navigator.vibrate) navigator.vibrate([20, 60, 20]);
   }
-  window._onDiceRequest = _applyDiceRequest;
+  if (_wantRequests) window._onDiceRequest = _applyDiceRequest;
 
   // DM cancelled the active prescribed roll (e.g. via DELETE /dice-request/<id>).
   // Server broadcasts {dice_request_cancelled: <request_id>}. If it matches
@@ -7715,7 +7733,7 @@ function _initDicePad() {
       setTimeout(() => { if (line.textContent === '— request cancelled by DM —') line.textContent = ''; }, 4000);
     }
   }
-  window._onDiceRequestCancelled = _onDiceRequestCancelled;
+  if (_wantRequests) window._onDiceRequestCancelled = _onDiceRequestCancelled;
 
   // ── Player-side badge, driven by the replayed dice_pending snapshot (see
   // Amendment 2). Authoritative for badge *visibility* on connect/reconnect.
@@ -7747,7 +7765,7 @@ function _initDicePad() {
       }
     }
   }
-  window._onDicePendingSnapshot = _onDicePendingSnapshot;
+  if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;
 }
 </script>
 </body>

@@ -100,7 +100,9 @@ class RemotePlayerConsoleContracts(unittest.TestCase):
         # The pad markup now lives inside the drawer shell.
         self.assertLess(markup.index('id="dice-drawer"'), markup.index('id="dice-pad"'))
         # The pad is initialised again (Task 2 removed the call pending this drawer).
-        self.assertIn("_initDicePad();", markup)
+        # Task 4 gates the DM-request handlers behind an options argument, so
+        # the phone's call site now passes { requests: true } explicitly.
+        self.assertIn("_initDicePad({ requests: true });", markup)
         self.assertNotIn("body.input-only #dice-pad { display: none !important; }", markup)
 
     def test_request_arrival_records_and_badges_without_hijacking(self):
