@@ -172,17 +172,21 @@ PHONE_CALL_SITE = """
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
-    _initDicePad({ requests: true });
+    _initDicePad({ bind: GM_IDENTITY });
   }
 """
 
 FULL_DISPLAY_CALL_SITE = (
-    "else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }")
+    "else if (GM_IDENTITY) { _initDicePad({ bind: GM_IDENTITY }); }")
 
-# Stable landmark immediately above both call sites, used only to window the
-# failure message: a bare assertIn against the whole template reports a 2.5MB
-# haystack, which is not a diagnosable failure.
+# Stable landmarks bracketing both call sites, used only to window the failure
+# message: a bare assertIn against the whole template reports a 2.5MB haystack,
+# which is not a diagnosable failure. The full-display call site sits ~600
+# chars past the opening anchor, so a fixed-width window sliced from the anchor
+# printed the phone block and a comment and never reached the offending line —
+# hence the closing landmark, which is the last statement of the same block.
 CALL_SITE_ANCHOR = "const _inputMode = _qp.get('view') === 'input'"
+CALL_SITE_END = "_initModeSwitcher(_inputMode);"
 
 
 class DiceRequestGating(unittest.TestCase):
@@ -208,11 +212,24 @@ class DiceRequestGating(unittest.TestCase):
         end = MARKUP.index("\n}\n", start) + len("\n}\n")
         return MARKUP[start:end]
 
+    def _pad_code(self):
+        """_pad_body with whole-line `//` comments dropped.
+
+        For assertions about what the pad *does*, where the prose explaining
+        why it does not do something else would otherwise trip a substring
+        match. Trailing comments are left in place deliberately: a line like
+        `const x = GM_IDENTITY; // ...` is code and should still trip.
+        """
+        return "\n".join(line for line in self._pad_body().splitlines()
+                         if not line.strip().startswith("//"))
+
     def _assert_call_site(self, snippet):
         """Assert `snippet` appears in the template, ignoring whitespace.
 
-        On failure, print the expected snippet next to the actual text at
-        CALL_SITE_ANCHOR — never the whole template.
+        On failure, print the expected snippet next to the whole call-site
+        block (CALL_SITE_ANCHOR through CALL_SITE_END) — never the whole
+        template, and never a fixed-width window that stops short of the
+        line that actually differs.
         """
         needle = _norm(snippet)
         if needle in NORM_MARKUP:
@@ -221,7 +238,9 @@ class DiceRequestGating(unittest.TestCase):
         if anchor_at == -1:
             self.fail(f"call-site anchor {CALL_SITE_ANCHOR!r} is gone from the "
                       f"template; expected call site was:\n  {needle}")
-        actual = NORM_MARKUP[anchor_at:anchor_at + len(needle) + 400]
+        end_at = NORM_MARKUP.find(_norm(CALL_SITE_END), anchor_at)
+        end_at = (end_at + len(_norm(CALL_SITE_END))) if end_at != -1 else (anchor_at + 1200)
+        actual = NORM_MARKUP[anchor_at:end_at]
         self.fail("call site not found (whitespace-insensitive).\n"
                   f"  expected: {needle}\n"
                   f"  actual region after {CALL_SITE_ANCHOR!r}:\n    {actual}")
@@ -249,15 +268,30 @@ class DiceRequestGating(unittest.TestCase):
                 sites.append((MARKUP.count("\n", 0, idx) + 1, stripped))
             idx = line_end
 
-    def test_init_takes_a_requests_option(self):
+    def test_init_takes_only_a_bind_option(self):
         self.assertIn("function _initDicePad(opts) {", MARKUP)
-        self.assertIn("const _wantRequests = !(opts && opts.requests === false);", MARKUP)
+        # Task 4b removed opts.requests. Both call sites always wanted the
+        # DM-request handlers, so the flag was invariantly true and the three
+        # `if (_wantRequests)` guards never varied. What actually keeps the
+        # GM's own screen clear of their own dice requests is the *call-site*
+        # guard — the unbound full display never calls _initDicePad at all
+        # (pinned by test_the_pad_is_called_from_exactly_two_call_sites and
+        # test_full_display_inits_the_pad_only_with_an_identity).
+        self.assertNotIn("opts.requests", MARKUP)
+        self.assertNotIn("_wantRequests", MARKUP)
 
-    def test_all_three_request_handlers_are_gated(self):
+    def test_all_three_request_handlers_install_whenever_the_pad_runs(self):
+        # The remaining contract: initialising the pad installs all three
+        # handlers, unconditionally. Each is pinned as a statement standing
+        # alone at the function's own indent level, so re-gating one behind a
+        # fresh `if (...)` on the same line fails here rather than passing on
+        # a substring match.
         body = self._pad_body()
-        self.assertIn("if (_wantRequests) window._onDiceRequest = _applyDiceRequest;", body)
-        self.assertIn("if (_wantRequests) window._onDiceRequestCancelled = _onDiceRequestCancelled;", body)
-        self.assertIn("if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;", body)
+        for assignment in ("window._onDiceRequest = _applyDiceRequest;",
+                           "window._onDiceRequestCancelled = _onDiceRequestCancelled;",
+                           "window._onDicePendingSnapshot = _onDicePendingSnapshot;"):
+            self.assertIn(f"\n  {assignment}", body,
+                          f"{assignment!r} is not an ungated top-level statement of _initDicePad")
 
     def test_the_pad_is_called_from_exactly_two_call_sites(self):
         # A third call site is how the unbound full display would regain the
@@ -265,6 +299,12 @@ class DiceRequestGating(unittest.TestCase):
         # badge their own screen. Neither of the two legitimate sites may be
         # duplicated or joined by an unguarded top-level call; the guard on
         # each is pinned separately (see the two tests below).
+        #
+        # DO NOT RELAX THIS COUNT. test_full_display_inits_the_pad_only_with
+        # _an_identity asserts the full-display snippet appears in the
+        # template, which a *commented-out* call site would still satisfy —
+        # this count is the only test that catches that, because _call_sites()
+        # skips commented occurrences. The two are mutually load-bearing.
         sites = self._call_sites()
         self.assertEqual(
             len(sites), 2,
@@ -272,8 +312,10 @@ class DiceRequestGating(unittest.TestCase):
             f"the full display's bound-player branch), found {len(sites)}: {sites}")
 
     def test_phone_call_site_stays_guarded_by_input_mode(self):
-        # The phone's own call site, pinned whole. Task 4 must not have moved
-        # or re-guarded it: the phone view has to behave exactly as before.
+        # The phone's own call site, pinned whole. It must not have moved or
+        # been re-guarded. As of Task 4b it passes `{ bind: GM_IDENTITY }`:
+        # _initDicePad no longer reads the URL itself, and GM_IDENTITY is the
+        # one resolver that reads ?char=/?character= (server value first).
         self._assert_call_site(PHONE_CALL_SITE)
 
     def test_full_display_inits_the_pad_only_with_an_identity(self):
@@ -283,34 +325,89 @@ class DiceRequestGating(unittest.TestCase):
         # `else if (GM_IDENTITY)` verbatim also pins the *polarity* of the
         # guard: `if (!GM_IDENTITY)` would be the unbound GM console installing
         # its own request handlers, which is the entire reason this gate exists.
+        #
+        # This is a substring assertion, so it stays green against a
+        # commented-out call site. What rejects that is
+        # test_the_pad_is_called_from_exactly_two_call_sites, which counts only
+        # uncommented occurrences — do not relax that count without replacing
+        # this pin with something that parses.
         self._assert_call_site(FULL_DISPLAY_CALL_SITE)
 
-    @staticmethod
-    def _bind_derivation():
+    def test_the_two_call_sites_form_one_if_else_chain(self):
+        # Both snippets above are asserted independently, so on their own they
+        # do not pin that the full-display branch is the phone branch's `else`.
+        # A re-chained `if (_fabOnly) { _initFab(); } else if (GM_IDENTITY)
+        # { _initDicePad(...) }` contains both snippets verbatim while
+        # behaviourally dropping the pad for a bound full display and
+        # double-initialising it on a phone. The gap between the two must
+        # therefore hold nothing executable: no statement terminator and no
+        # further `if (`.
+        phone, full = _norm(PHONE_CALL_SITE), _norm(FULL_DISPLAY_CALL_SITE)
+        phone_at = NORM_MARKUP.find(phone)
+        full_at = NORM_MARKUP.find(full)
+        self.assertNotEqual(phone_at, -1, "phone call site missing")
+        self.assertNotEqual(full_at, -1, "full-display call site missing")
+        self.assertLess(phone_at, full_at, "full-display branch precedes the phone branch")
+        between = NORM_MARKUP[phone_at + len(phone):full_at]
+        self.assertNotIn(";", between,
+                         f"a statement sits between the two branches: {between!r}")
+        self.assertNotIn("if (", between,
+                         f"another `if (` sits between the two branches: {between!r}")
+
+    BIND_DECLARATION = "const _bound = "
+
+    def _bind_derivation(self):
         """The `const _bound = ...;` statement, up to its own semicolon.
 
         Asserting against this slice rather than the whole template keeps a
-        failure message down to one readable line.
+        failure message down to one readable line. Uniqueness is asserted for
+        the same reason _pad_body asserts it: a second matching declaration
+        would otherwise be silently ignored by MARKUP.index.
         """
-        start = MARKUP.index("const _bound = (_qp.get('char')")
+        self.assertEqual(
+            MARKUP.count(self.BIND_DECLARATION), 1,
+            f"expected exactly one {self.BIND_DECLARATION!r} statement")
+        start = MARKUP.index(self.BIND_DECLARATION)
         return MARKUP[start:MARKUP.index(";", start) + 1]
 
-    def test_binding_derivation_consults_the_bind_option(self):
+    def test_binding_derivation_consults_only_the_bind_option(self):
         self.assertEqual(
             self._bind_derivation(),
-            "const _bound = (_qp.get('char') || _qp.get('character') || '')"
-            ".trim().slice(0, 24) || ((opts && opts.bind) || '').trim();")
+            "const _bound = ((opts && opts.bind) || '').trim();")
+
+    def test_the_pad_never_reads_the_url(self):
+        # Task 4b: _initDicePad takes its binding from the call site alone.
+        # Reading ?char= here as well made the URL operand *win* over
+        # opts.bind and truncated it to 24 chars, while _CHAR_NAME_RE permits
+        # 50. Once Task 7 routes ?char=X&view=full to the full-display branch,
+        # GM_IDENTITY would hold the full name and #dp-name a 24-char slice,
+        # so _applyDiceRequest's case-insensitive match of #dp-name against
+        # the GM's target list would silently never fire for a 25+ char name.
+        code = self._pad_code()
+        for url_read in ("URLSearchParams", "location.search", "_qp"):
+            self.assertNotIn(url_read, code,
+                             f"_initDicePad still reads the URL via {url_read!r}")
+
+    def test_the_pad_keeps_the_phone_localstorage_last_resort(self):
+        # Reached only when nothing binds this browser — a phone opened with
+        # no ?char= and no session cookie. Still the correct behaviour, and
+        # dropping the URL read must not have taken it with it. The
+        # full-display path cannot reach it: that branch requires a non-empty
+        # GM_IDENTITY, which is exactly what it passes as opts.bind.
+        body = self._pad_body()
+        self.assertIn("nameEl.value = localStorage.getItem('gm_player_name') || '';", body)
 
     def test_bind_operand_is_not_truncated(self):
         # Fix round 2 (Important finding): _CHAR_NAME_RE permits names up to
         # 50 chars and scripts/gm_invite.py applies no length cap when
-        # minting a join token, so opts.bind (the full display's
-        # server-authoritative identity) must survive intact. Truncating it
-        # here would desync #dp-name's value from the GM_IDENTITY used
-        # elsewhere (_selectedChar, _loadCharacterSheet), so a GM request for
-        # the player's full name would silently fail to match on their own
-        # screen — the exact harm HIGH 1 was about, reintroduced via a
-        # different path.
+        # minting a join token, so opts.bind (the caller's resolved identity)
+        # must survive intact. Truncating it here would desync #dp-name's
+        # value from the GM_IDENTITY used elsewhere (_selectedChar,
+        # _loadCharacterSheet), so a GM request for the player's full name
+        # would silently fail to match on their own screen — the exact harm
+        # HIGH 1 was about, reintroduced via a different path. Stated
+        # separately from the exact-equality test above so the *reason*
+        # survives any future re-statement of the derivation.
         derivation = self._bind_derivation()
         bind_operand = derivation[derivation.index("opts.bind"):]
         # Every spelling of a length cap, not just the one that was there:
@@ -319,11 +416,40 @@ class DiceRequestGating(unittest.TestCase):
             self.assertNotIn(truncator, bind_operand)
 
     def test_binding_derivation_never_reads_gm_identity_directly(self):
-        # A remote player who opens /?view=input (phone branch, no `bind`
-        # passed) must not be silently bound to GM_IDENTITY — only the URL
-        # param or an explicit opts.bind may set _bound inside _initDicePad.
-        body = self._pad_body()
-        self.assertNotIn("GM_IDENTITY", body)
+        # The binding must arrive as opts.bind from the caller, never by
+        # _initDicePad reaching for GM_IDENTITY itself: the guard that decides
+        # whether this browser has an identity at all lives at the call site,
+        # and reading the resolver here would install the pad's binding even
+        # on a path that deliberately declined to pass one. Asserted against
+        # _pad_code: the comment explaining this very rule names GM_IDENTITY.
+        self.assertNotIn("GM_IDENTITY", self._pad_code())
+
+
+class SseStreamIdentity(unittest.TestCase):
+    def test_stream_character_comes_from_the_one_identity_resolver(self):
+        # _streamChar used to re-derive the character from the URL alone, a
+        # second identity resolver with its own precedence. GM_IDENTITY is a
+        # dependency-free const declared far above connect(), so the SSE
+        # subscription can just use it.
+        #
+        # Consolidation only — /stream's own handler passes the param through
+        # _bound_character, which discards it for an authenticated player in
+        # favour of the session cookie's character, so the param decides
+        # anything only for a local/GM browser, where GM_IDENTITY resolves from
+        # the very same URL params. (The plan's Task 7 rationale — that
+        # _phone_present stays false for invite-link players — is wrong for
+        # that reason.)
+        self.assertIn("const _streamChar = GM_IDENTITY;", MARKUP)
+        # _sp existed only to feed _streamChar.
+        self.assertNotIn("const _sp = ", MARKUP)
+
+    def test_identity_resolver_is_declared_above_the_stream_char(self):
+        # The dependency the assertion above relies on. A future edit that
+        # moved the resolver below connect() would make _streamChar a
+        # ReferenceError at load (const, temporal dead zone) — silent-ish in
+        # a browser but total: the whole script block would stop executing.
+        self.assertLess(MARKUP.index("const GM_IDENTITY ="),
+                        MARKUP.index("const _streamChar ="))
 
 
 class DiceBadgeDrawerStacking(unittest.TestCase):

@@ -6264,10 +6264,10 @@ const _playerSheetClose = document.getElementById('player-sheet-close');
 // localStorage['gm_player_name'] is deliberately NOT consulted here. It is
 // unvalidated free text from #dp-name and is shared across every tab on this
 // origin, so a GM who opened phone mode once would have this display claim to
-// be that character from then on. Inside _initDicePad the identity instead
-// comes from the call site (the URL param, or an explicit opts.bind passed
-// by the full display's GM_IDENTITY check below); localStorage is reachable
-// only as a last resort on the phone path, when neither is set.
+// be that character from then on. _initDicePad does not resolve an identity of
+// its own: both call sites pass this constant as opts.bind, and localStorage is
+// reachable only as a last resort inside the pad, when nothing resolved here.
+// This constant is also the SSE subscription's character (_streamChar below).
 const _idParams = new URLSearchParams(location.search);
 const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()
                  || (_idParams.get('char') || _idParams.get('character') || '').trim();
@@ -6923,11 +6923,19 @@ _sidebarBtn.addEventListener('click', () => _setSidebarVisible(!_sidebarVisible)
 let evtSource = null;
 let reconnectDelay = 1000;
 
-// Phones append ?char=<name> (or ?character=<name>) so the server can route
-// dice-requests to the phone bound to that PC. The TV view passes neither and
-// is treated as the shared display.
-const _sp = new URLSearchParams(location.search);
-const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim();
+// Subscribe as whoever this browser is, so the server can route dice-requests
+// to it (see _phone_present / onscreen_targets server-side). That is exactly
+// GM_IDENTITY — the one identity resolver, declared far above — rather than a
+// second derivation from ?char= / ?character= with its own precedence.
+//
+// This is a consolidation, not a behaviour change: /stream funnels the param
+// through _bound_character, which ignores it outright for an authenticated
+// player and uses the session cookie's character instead. So the param only
+// ever decides anything for a local/GM browser, which has no injected
+// GM_BOUND_CHARACTER and therefore resolves GM_IDENTITY from the same two URL
+// params this line used to read. An unbound browser (GM console, TV) resolves
+// to '' and gets the undifferentiated shared stream, as before.
+const _streamChar = GM_IDENTITY;
 
 function connect() {
   evtSource = new EventSource(_streamChar ? `/stream?character=${encodeURIComponent(_streamChar)}` : '/stream');
@@ -7084,8 +7092,9 @@ connect();
 //   ?char=<Name>             — shorthand: char= alone implies input-only,
 //                              so players only need to type the short URL
 //                              (e.g. http://<host>:5001/?char=Mira).
-// Both forms set the character binding the same way (the binding is read
-// from ?character= or ?char= inside _initDicePad).
+// Both forms set the character binding the same way: GM_IDENTITY resolves it
+// (server-injected value first, then ?char= / ?character=) and it is handed to
+// _initDicePad as opts.bind, which is the pad's only source of a binding.
 {
   const _qp = new URLSearchParams(location.search);
   const _inputMode = _qp.get('view') === 'input' || _qp.has('char') || _qp.has('character');
@@ -7093,14 +7102,14 @@ connect();
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
     if (ip) ip.classList.remove('collapsed');
-    _initDicePad({ requests: true });
+    _initDicePad({ bind: GM_IDENTITY });
   }
   // Full display: a bound player gets the same pad and the same DM-request
   // handling, so they can roll without giving up the narration. An unbound
   // display (GM console, shared screen) initialises nothing — it has no
   // character to roll as, and installing the request handlers there would
   // badge the GM with their own requests.
-  else if (GM_IDENTITY) { _initDicePad({ requests: true, bind: GM_IDENTITY }); }
+  else if (GM_IDENTITY) { _initDicePad({ bind: GM_IDENTITY }); }
   _initModeSwitcher(_inputMode);
 }
 
@@ -7353,12 +7362,16 @@ function _updateDicePendingBadge(snapshot) {
 }
 
 // ── Phone dice pad: server-side roll + slot-machine reveal ───────────────
-// opts.requests — install the DM dice-request handlers (badge, prefill, lock).
-// The phone wants them. The full display wants them only for a bound player:
-// on the GM's own screen they would fire on every request the GM issues, so
-// the GM would lock their own pad and badge themselves.
+// opts.bind — the character this pad rolls as, resolved by the caller. Empty
+// or absent means "unbound": the pad falls back to a free-text name.
+//
+// Initialising the pad always installs the DM dice-request handlers (badge,
+// prefill, lock). There is deliberately no flag to suppress them: what keeps
+// them off the GM's own screen — where they would fire on every request the GM
+// issues, locking and badging the GM's own pad — is that the unbound full
+// display never calls this function at all. The guard lives at the call site,
+// which is the only place that knows whether this browser has an identity.
 function _initDicePad(opts) {
-  const _wantRequests = !(opts && opts.requests === false);
   const reel    = document.getElementById('dp-reel');
   const rollBtn = document.getElementById('dp-roll');
   const modVal  = document.getElementById('dp-mod-val');
@@ -7367,23 +7380,23 @@ function _initDicePad(opts) {
   const boundEl = document.getElementById('dp-bound');
   if (!reel || !rollBtn) return;
 
-  // Character binding: ?char=Piper (or ?character=Piper) locks this phone to
-  // that player, truncated to 24 chars — pre-existing phone behaviour, left
-  // as-is. Without the param, the caller's opts.bind (the full display
-  // passes its own resolved identity) is the fallback, untruncated: it is
-  // already validated and length-bounded server-side (_CHAR_NAME_RE allows
-  // up to 50 chars), so slicing it here would desync #dp-name's value from
-  // the identity used elsewhere on the full display (_selectedChar,
-  // _loadCharacterSheet) and make a GM's dice request for the full name
-  // silently miss a truncated match on the player's own screen. Only if
-  // neither is set does the pad fall back to a free-text name +
-  // localStorage. The server-injected identity is never read here
-  // directly — a remote player who opens /?view=input takes this same
-  // function on the phone branch with no opts.bind, and binding them to
-  // that identity there would be a phone behaviour change, which is
-  // off-limits.
-  const _qp = new URLSearchParams(location.search);
-  const _bound = (_qp.get('char') || _qp.get('character') || '').trim().slice(0, 24) || ((opts && opts.bind) || '').trim();
+  // Character binding: whatever the caller passed, and nothing else. This
+  // deliberately does NOT read ?char= / ?character= — GM_IDENTITY already
+  // resolves the server-injected value first and those params second, and both
+  // call sites hand it straight through, so a URL read here would be a second
+  // resolver with its own precedence. It also must not truncate: _CHAR_NAME_RE
+  // permits 50 chars and scripts/gm_invite.py caps nothing when minting a join
+  // token, so a shortened value would desync #dp-name from the GM_IDENTITY used
+  // by _selectedChar and _loadCharacterSheet, and _applyDiceRequest's match of
+  // #dp-name against the GM's target list would silently miss. Nothing
+  // downstream needs a cap: #dp-name and #dp-bound take it as .value /
+  // .textContent, and /player-input/dice re-derives the name server-side
+  // (_bound_character for an authenticated player, otherwise a 50-char clamp).
+  // With no binding the pad falls back to a free-text name + localStorage —
+  // reachable only on a phone opened with neither a session cookie nor a URL
+  // param, never on the full display, whose call site requires a non-empty
+  // GM_IDENTITY to fire at all.
+  const _bound = ((opts && opts.bind) || '').trim();
   if (_bound) {
     nameEl.value = _bound;
     nameEl.classList.add('locked');
@@ -7712,7 +7725,7 @@ function _initDicePad(opts) {
     showDiceRequestBadge(req);
     if (navigator.vibrate) navigator.vibrate([20, 60, 20]);
   }
-  if (_wantRequests) window._onDiceRequest = _applyDiceRequest;
+  window._onDiceRequest = _applyDiceRequest;
 
   // DM cancelled the active prescribed roll (e.g. via DELETE /dice-request/<id>).
   // Server broadcasts {dice_request_cancelled: <request_id>}. If it matches
@@ -7747,7 +7760,7 @@ function _initDicePad(opts) {
       setTimeout(() => { if (line.textContent === '— request cancelled by DM —') line.textContent = ''; }, 4000);
     }
   }
-  if (_wantRequests) window._onDiceRequestCancelled = _onDiceRequestCancelled;
+  window._onDiceRequestCancelled = _onDiceRequestCancelled;
 
   // ── Player-side badge, driven by the replayed dice_pending snapshot (see
   // Amendment 2). Authoritative for badge *visibility* on connect/reconnect.
@@ -7779,7 +7792,7 @@ function _initDicePad(opts) {
       }
     }
   }
-  if (_wantRequests) window._onDicePendingSnapshot = _onDicePendingSnapshot;
+  window._onDicePendingSnapshot = _onDicePendingSnapshot;
 }
 </script>
 </body>
