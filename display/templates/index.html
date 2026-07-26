@@ -836,6 +836,12 @@
   .sb-player:hover { background: rgba(180,140,60,0.06); }
 
   /* ── Character sheet modal ── */
+  .sm-authored { margin-top: 18px; border-top: 1px solid rgba(180,140,60,0.28); padding-top: 14px; }
+  .sm-authored h1, .sm-authored h2, .sm-authored h3 { color: rgba(220,185,100,0.9); margin: 14px 0 6px; }
+  .sm-authored table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  .sm-authored th, .sm-authored td { border: 1px solid rgba(180,140,60,0.25); padding: 4px 8px; text-align: left; }
+  .sm-authored-missing { opacity: 0.45; font-style: italic; }
+
   #sheet-modal {
     display: none;
     position: fixed;
@@ -5153,6 +5159,11 @@ function _smDivider() {
 }
 
 let _openSheetName = null;
+// openSheet's own stale-response guard. Deliberately NOT _playerSheetRequest:
+// that counter belongs to the phone overlay and closePlayerSheet() increments
+// it, so sharing it would let any overlay close silently discard an authored
+// body still in flight for this modal.
+let _openSheetRequest = 0;
 
 function openSheet(name) {
   _openSheetName = name;
@@ -5438,6 +5449,35 @@ function openSheet(name) {
 
   document.getElementById('sheet-modal').classList.add('open');
   document.getElementById('sheet-panel').scrollTop = 0;
+
+  // ── Authored sheet body ──────────────────────────────────────────────
+  // Everything above is the live SSE stats payload: current HP, AC, ability
+  // scores. Everything below is the .md file the GM wrote — spells, inventory,
+  // features. A player means both when they say "my character sheet", so this
+  // modal shows both rather than making them choose a view.
+  //
+  // The fetch fires after the modal is already open so the live header paints
+  // immediately and the body fills in underneath. Clicking two sidebar cards
+  // quickly must not paint the first character's markdown into the second's
+  // sheet, hence the counter.
+  const request = ++_openSheetRequest;
+  const authored = document.createElement('div');
+  authored.className = 'sm-authored';
+  content.appendChild(authored);
+
+  fetch(`/character/${encodeURIComponent(name)}`, { credentials: 'same-origin' })
+    .then(res => res.ok ? res.text() : Promise.reject(res.status))
+    .then(md => {
+      if (request !== _openSheetRequest) return;
+      authored.innerHTML = _renderMarkdown(md);
+    })
+    .catch(() => {
+      if (request !== _openSheetRequest) return;
+      // No .md on disk is the normal state for an NPC or a freshly imported
+      // PC — a quiet note, not an error. The live header above still stands.
+      authored.innerHTML =
+        '<div class="sm-authored-missing">No authored sheet file for this character.</div>';
+    });
 }
 
 function closeSheet() {
@@ -7359,14 +7399,14 @@ async function _loadCharacterSheet(name) {
   const bodyEl = document.getElementById('cp-body');
   if (!status || !bodyEl) return;
   const request = ++_playerSheetRequest;
-  // Resolve the character: the passed name, then ?char= / ?character=, then
-  // GM_IDENTITY (the server's answer), then localStorage / typed name last —
-  // the server's answer outranks localStorage because GM_IDENTITY comes from
-  // a validated, httponly session cookie, while localStorage['gm_player_name']
-  // is unvalidated free text shared across every tab on this origin.
-  const _qpCh = new URLSearchParams(location.search);
-  const ch = (name || _qpCh.get('char') || _qpCh.get('character')
-              || GM_IDENTITY
+  // Resolve the character: the passed name, then GM_IDENTITY (the server's
+  // answer), then localStorage / typed name last. GM_IDENTITY already folds in
+  // ?char= / ?character=, so reading them again here only ever did one thing —
+  // put an unvalidated URL param ahead of the httponly session cookie, which is
+  // the exact ordering the one identity resolver exists to prevent.
+  // localStorage['gm_player_name'] stays last: unvalidated free text, shared
+  // across every tab on this origin.
+  const ch = (name || GM_IDENTITY
               || localStorage.getItem('gm_player_name')
               || '').trim();
   if (!ch) {

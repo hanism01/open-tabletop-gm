@@ -157,3 +157,87 @@ def test_the_disabled_sheet_button_can_still_be_hovered(gm_display, context):
     assert pointer_events != "none", (
         "a rule in the cascade suppresses hit-testing on the disabled Sheet "
         "button, so its explanatory tooltip is unreachable")
+
+
+KARA_SHEET = "# Kara\n\n**Class** Rogue\n\n- Thieves' tools\n"
+
+
+def _seed_sheet_data(page, name):
+    """Put one character into the page's own _playerData.
+
+    openSheet renders its live header from _playerData, which normally arrives
+    over SSE. The module fixture ships an empty roster on purpose — that is the
+    state the Sheet button's readiness rule is about — and it is module-scoped,
+    so pushing a roster into the server would leak into every other test here.
+    Seeding the page's copy keeps this test's state inside this test.
+    """
+    page.evaluate(
+        """(name) => {
+            _playerData[name] = { name, class: 'Rogue', hp: 12, max_hp: 18, ac: 15 };
+        }""", name)
+
+
+def _await_intercept(page, held):
+    """Block until a routed request has been captured, or fail saying so."""
+    for _ in range(100):
+        if held:
+            return held[0]
+        page.wait_for_timeout(50)
+    raise AssertionError("openSheet never fetched the authored sheet")
+
+
+def test_open_sheet_shows_the_authored_markdown_under_the_live_header(gm_display, context):
+    # The live SSE header and the GM's authored .md are two different sources,
+    # and a player asking for "my character sheet" means both. Source-string
+    # tests cannot see whether the second one actually lands in the DOM, or
+    # where — this can.
+    page = gm_display.open(context, "Kara")
+    page.route("**/character/Kara", lambda route: route.fulfill(
+        status=200, content_type="text/markdown; charset=utf-8", body=KARA_SHEET))
+    _seed_sheet_data(page, "Kara")
+    page.evaluate("() => openSheet('Kara')")
+
+    expect(page.locator("#sheet-modal")).to_be_visible()
+    expect(page.locator("#sheet-content .sm-authored h1")).to_have_text("Kara")
+    # Order matters, not just presence: a player opening the sheet mid-combat
+    # is looking for current HP, and must not have to scroll past the whole
+    # authored document to reach it.
+    following = page.evaluate(
+        """() => document.querySelector('#sheet-content .sm-name')
+                 .compareDocumentPosition(
+                     document.querySelector('#sheet-content .sm-authored'))
+                 & Node.DOCUMENT_POSITION_FOLLOWING""")
+    assert following != 0, "the authored body renders above the live header"
+
+
+def test_a_character_with_no_sheet_file_is_a_quiet_note_not_an_error(gm_display, context):
+    # No .md on disk is the normal state for an NPC or a freshly imported PC.
+    # No route override here: the fixture's roster is empty, so the real
+    # endpoint answers a real 404 and the client's degrade path runs for real.
+    page = gm_display.open(context, "Kara")
+    _seed_sheet_data(page, "Brann")
+    page.evaluate("() => openSheet('Brann')")
+
+    expect(page.locator("#sheet-content .sm-authored-missing")).to_be_visible()
+    # The live header is the part that must survive the 404.
+    expect(page.locator("#sheet-content .sm-name")).to_have_text("Brann")
+
+
+def test_closing_the_phone_overlay_does_not_discard_an_open_sheet_fetch(gm_display, context):
+    # openSheet must own its stale counter. _playerSheetRequest belongs to the
+    # phone overlay and closePlayerSheet() bumps it, so an openSheet fetch that
+    # borrowed it would be silently dropped by any overlay close in flight —
+    # leaving the modal showing the live header and no authored body, with no
+    # error anywhere.
+    held = []
+    page = gm_display.open(context, "Kara")
+    page.route("**/character/Kara", lambda route: held.append(route))
+    _seed_sheet_data(page, "Kara")
+    page.evaluate("() => openSheet('Kara')")
+    route = _await_intercept(page, held)
+
+    page.evaluate("() => closePlayerSheet()")
+    route.fulfill(status=200, content_type="text/markdown; charset=utf-8",
+                  body=KARA_SHEET)
+
+    expect(page.locator("#sheet-content .sm-authored h1")).to_have_text("Kara")
