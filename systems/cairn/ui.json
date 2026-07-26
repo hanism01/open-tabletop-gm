@@ -1,0 +1,40 @@
+{
+  "manifest_version": 1,
+  "system": "cairn",
+  "label": "Cairn 2e",
+
+  "sidebar": [
+    { "type": "bar", "label": "HP", "bind": "hp", "icon": "/static/icons/health.svg",
+      "row_class": "sb-hp-row", "num_class": "sb-hp-nums", "fill_role": "hp-fill",
+      "cur": "current", "max": "max", "color": "hp" },
+
+    { "type": "stat_lines", "lines": [
+      { "label": "Armor", "bind": "armor" },
+      { "label": "Slots", "bind": "inventory_used", "suffix": "/10" }
+    ] },
+
+    { "type": "tag_list", "bind": "conditions" },
+
+    { "type": "effects", "bind": "effects" },
+
+    { "type": "badge_set", "bind": "milestones" }
+  ],
+
+  "sheet": {
+    "combat_strip": [
+      { "label": "HP", "bind": "hp", "format": "ratio" },
+      { "label": "Armor", "bind": "armor" },
+      { "label": "Slots", "bind": "inventory_used", "suffix": "/10" }
+    ],
+    "stat_grid": {
+      "label": "Attributes",
+      "bind": "ability_scores",
+      "show_modifier": false,
+      "stats": [
+        { "key": "str", "label": "STR" },
+        { "key": "dex", "label": "DEX" },
+        { "key": "wil", "label": "WIL" }
+      ]
+    }
+  }
+}
