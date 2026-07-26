@@ -486,16 +486,22 @@ Self-hosting and modification are explicitly welcome — fork, run, change as yo
 
 ### Third-party game content
 
-The AGPL covers this project's own code and prose. Some system modules under
-`systems/` adapt third-party rules text and carry their own terms, which apply
-in addition to — or in place of — the AGPL:
+The AGPL covers this project's own code and prose. Every system module under
+`systems/` carries a `NOTICE` file with its own terms, which apply in addition
+to — or in place of — the AGPL. Read the `NOTICE` before redistributing a
+module.
 
 | Module | Source | Terms |
 |--------|--------|-------|
-| `systems/brp/` | Basic Roleplaying, Chaosium Inc. | ORC License, concurrent with AGPL-3.0-or-later — see [NOTICE](systems/brp/NOTICE) |
-| `systems/cairn/` | Cairn 2e SRD, Yochai Gal | CC BY-SA 4.0 **only** — ShareAlike, not sublicensed under the AGPL. See [NOTICE](systems/cairn/NOTICE) |
+| `systems/brp/` | Basic Roleplaying, Chaosium Inc. | [ORC License](systems/brp/NOTICE), concurrent with AGPL-3.0-or-later |
+| `systems/cairn/` | Cairn 2e SRD, Yochai Gal | [CC BY-SA 4.0](systems/cairn/NOTICE) **only** — ShareAlike, not sublicensed under the AGPL |
+| `systems/dnd5e/` | D&D 5e SRD, via 5e-bits and foundryvtt/dnd5e | [OGL v1.0a and CC BY 4.0](systems/dnd5e/NOTICE) apply to the datasets, not to this repo |
+| `systems/pf2e/` | Pathfinder Second Edition Remaster, Paizo Inc. | [ORC License](systems/pf2e/NOTICE), concurrent with AGPL-3.0-or-later |
+| `systems/sf2e/` | Starfinder Second Edition, Paizo Inc. | [ORC License](systems/sf2e/NOTICE), concurrent with AGPL-3.0-or-later |
 
 Generated third-party datasets under `systems/*/data/` are untracked and never
 distributed with this repo; only the builder scripts and source pins are
 committed. Rebuilding them fetches from each source's own documented,
-license-compatible location.
+license-compatible location — and hands you that source's obligations, which
+this repo does not itself trigger. `systems/paizo2e/` is shared importer code
+with no third-party rules text, so it carries no `NOTICE`.

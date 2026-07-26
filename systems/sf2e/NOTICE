@@ -1,0 +1,31 @@
+This system module supports Starfinder Second Edition, which shares the
+Pathfinder Second Edition Remaster engine.
+
+ORC Notice
+  This product is licensed under the ORC License located at the Library of
+  Congress at TX 9-307-067 and available online at various locations
+  including https://paizo.com/orclicense and others. All warranties are
+  disclaimed as set forth therein.
+
+Attribution
+  This product is based on the following Licensed Material: Starfinder
+  Second Edition rules and Pathfinder Second Edition Remaster rules,
+  © Paizo Inc.; Publisher: Paizo Inc., paizo.com.
+
+Reserved Material
+  Reserved Material elements under the ORC License include, but may not be
+  limited to: the trademarks "Starfinder", "Pathfinder" and "Paizo", Paizo
+  trade dress, and all setting proper nouns, characters, organizations and
+  locations. The ORC License does not license trademark rights.
+
+`system.md` in this directory is original prose describing procedures of play —
+Licensed Material under ORC Section I.e.(2). As Adapted Licensed Material it is
+offered to recipients under the ORC License, and is additionally available
+under the project's AGPL-3.0-or-later.
+
+No Paizo game data is distributed with this repository. `build_foundry.py`
+builds a dataset at run time from the foundryvtt/pf2e source archive
+(ref v14-dev, packs/sf2e); its output under `systems/sf2e/data/` is untracked
+by Git.
+
+open-tabletop-gm is not affiliated with, endorsed, or sponsored by Paizo Inc.

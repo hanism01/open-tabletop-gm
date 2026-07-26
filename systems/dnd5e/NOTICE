@@ -1,0 +1,36 @@
+This system module supports Dungeons & Dragons 5th Edition.
+
+`system.md` in this directory is original prose written for open-tabletop-gm
+describing procedures of play. It is licensed under the project's
+AGPL-3.0-or-later.
+
+No third-party game data is distributed with this repository. The dataset
+builders in this directory fetch from the sources below at build time, and
+their output under `systems/dnd5e/data/` is untracked by Git and never
+published here.
+
+  5e-bits/5e-database — https://github.com/5e-bits/5e-database
+    Project code: MIT License.
+    Underlying game material: Open Game License v1.0a.
+    Used by build_srd.py for spells, equipment, magic items, conditions
+    and monsters (2014 SRD).
+
+  foundryvtt/dnd5e — https://github.com/foundryvtt/dnd5e
+    Project code: MIT License.
+    Game material: Creative Commons Attribution 4.0 International
+    (CC BY 4.0), derived from the System Reference Document by Wizards of
+    the Coast LLC.
+    Used by build_srd.py for class features and racial traits (2024 SRD).
+
+If you redistribute a built dataset, you take on the source's obligations:
+the OGL v1.0a requires that its full license text accompany any Open Game
+Content, and CC BY 4.0 requires attribution to Wizards of the Coast LLC.
+This repository triggers neither obligation because it ships no data.
+
+`build_supplemental.py` scrapes dnd5e.wikidot.com on request. That content is
+not openly licensed. Its output is untracked, local-only, and must not be
+redistributed.
+
+Dungeons & Dragons and D&D are trademarks of Wizards of the Coast LLC.
+open-tabletop-gm is not affiliated with, endorsed, or sponsored by Wizards of
+the Coast LLC.

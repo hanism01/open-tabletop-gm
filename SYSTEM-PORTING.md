@@ -20,6 +20,17 @@ Rules data is an optional third layer. If a system ships a `lookup.py` command a
 
 Generated or vendored third-party data belongs under `systems/<system>/data/` and must be ignored by Git; keep only the builder/sync scripts and small source/version metadata that makes a rebuild auditable. Respect the source's license and terms, and keep `system.md` useful when the optional dataset is absent.
 
+### Attribution is required (not optional)
+
+Every module in `systems/` ships a `NOTICE` file. A new module does not land without one. It must state:
+
+- The source work, its author or publisher, and a link.
+- The exact license, and any notice text that license *requires* verbatim — the ORC License, for example, mandates a specific statement under its Section III.a.
+- Whether the module's rules text can be licensed under this project's AGPL-3.0-or-later. Some licenses permit it concurrently (ORC); ShareAlike licenses do **not**, so CC BY-SA text stays CC BY-SA. Do not copy another module's `NOTICE` without checking this.
+- Which trademarks are reserved, and a statement that the project is not affiliated with or endorsed by the rights holder.
+
+Read `systems/brp/NOTICE` (ORC, concurrent) and `systems/cairn/NOTICE` (CC BY-SA, not concurrent) as the two worked examples. Add the module to the third-party table in `README.md` at the same time.
+
 ---
 
 ## What's universal — no changes needed
