@@ -176,8 +176,19 @@ PHONE_CALL_SITE = """
   }
 """
 
-FULL_DISPLAY_CALL_SITE = (
-    "else if (GM_IDENTITY) { _initDicePad({ bind: GM_IDENTITY }); }")
+# Task 5 added the un-collapse to this branch, deliberately restating the
+# constant rather than loosening it: #input-panel ships collapsed, .collapsed
+# hides #input-body, and #input-body holds the dice-request badge and the
+# player-control buttons. Without this line a bound player on the full display
+# gets a shut panel and no way into any of it. The phone branch above has
+# always done the same thing, which is why PHONE_CALL_SITE carries it too.
+FULL_DISPLAY_CALL_SITE = """
+  else if (GM_IDENTITY) {
+    const ip = document.getElementById('input-panel');
+    if (ip) ip.classList.remove('collapsed');
+    _initDicePad({ bind: GM_IDENTITY });
+  }
+"""
 
 # Stable landmarks bracketing both call sites, used only to window the failure
 # message: a bare assertIn against the whole template reports a 2.5MB haystack,
@@ -471,3 +482,161 @@ class DpNameLockedAffordance(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InputPanelExpandsForABoundPlayer(unittest.TestCase):
+    """#input-footer is inside #input-body, which .collapsed hides outright.
+
+    The panel ships collapsed and only the phone branch un-collapsed it, so a
+    bound player landing on "/" from an invite link saw a closed "Party Input"
+    bar and none of the controls inside it. The other two auto-expands
+    (staged-input arriving, the autorun countdown) do not fire on a fresh load
+    with an empty queue, so the bound full display has to expand it itself.
+    """
+
+    def test_the_panel_still_ships_collapsed(self):
+        # The precondition. If this ever stops being true the expand below
+        # becomes dead code and should be reconsidered, not silently kept.
+        self.assertIn('<div id="input-panel" class="collapsed">', MARKUP)
+        self.assertIn("#input-panel.collapsed #input-body { display: none; }", MARKUP)
+
+    def test_the_footer_sits_inside_the_collapsible_body(self):
+        # Source-order proxy, not a parse: every test in this module asserts on
+        # template text, there is no DOM here. #input-footer opens after
+        # #input-body opens and before #input-panel's block ends at the
+        # <!-- Character sheet modal --> that follows it.
+        body_at = MARKUP.index('<div id="input-body">')
+        footer_at = MARKUP.index('<div id="input-footer">')
+        panel_block_end = MARKUP.index('<div id="sheet-modal">')
+        self.assertLess(body_at, footer_at)
+        self.assertLess(footer_at, panel_block_end)
+
+    def test_the_bound_full_display_expands_the_panel(self):
+        # Pinned as part of FULL_DISPLAY_CALL_SITE (asserted by
+        # DiceRequestGating.test_full_display_inits_the_pad_only_with_an_identity),
+        # restated here so the *reason* survives a future re-statement of that
+        # constant: without this the Sheet and Dice buttons are unreachable.
+        self.assertIn("if (ip) ip.classList.remove('collapsed');",
+                      _norm(FULL_DISPLAY_CALL_SITE))
+
+    def test_both_branches_expand_the_panel(self):
+        # Two call sites, two expands — the phone's has always been there.
+        self.assertEqual(NORM_MARKUP.count("if (ip) ip.classList.remove('collapsed');"), 2)
+
+
+class DiceRequestBadgeVisibility(unittest.TestCase):
+    """The badge is the only path from a GM request to the roll pad."""
+
+    def test_badge_is_visible_in_both_views(self):
+        # Was `body.input-only #dice-request-badge:not([hidden])`, so a bound
+        # player on the full display recorded the request and rendered no cue.
+        # The positive assertion alone is a substring of the old scoped rule;
+        # the assertNotIn is what actually catches the regression.
+        self.assertIn("\n  #dice-request-badge:not([hidden]) { display: flex; }", MARKUP)
+        self.assertNotIn("body.input-only #dice-request-badge:not([hidden])", MARKUP)
+
+    def test_badge_still_obeys_its_hidden_attribute(self):
+        # showDiceRequestBadge / hideDiceRequestBadge drive [hidden]; unscoping
+        # the visible rule must not have outranked the hidden one.
+        self.assertIn("#dice-request-badge[hidden] { display: none !important; }", MARKUP)
+
+
+class PlayerControlButtons(unittest.TestCase):
+    def _footer(self):
+        start = MARKUP.index('<div id="input-footer">')
+        return MARKUP[start:MARKUP.index("</div>", start)]
+
+    def test_both_buttons_live_in_the_input_footer(self):
+        footer = self._footer()
+        self.assertIn('id="pc-sheet-btn"', footer)
+        self.assertIn('id="pc-dice-btn"', footer)
+
+    def test_both_buttons_are_hidden_in_the_phone_view(self):
+        # The phone has roster chips for the sheet and a dice FAB for the pad.
+        self.assertIn(
+            "body.input-only #pc-sheet-btn, body.input-only #pc-dice-btn "
+            "{ display: none !important; }", MARKUP)
+
+    def test_dice_button_is_hidden_when_the_pad_was_never_initialised(self):
+        self.assertIn("_pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';", MARKUP)
+
+    def test_sheet_button_is_disabled_for_everybody(self):
+        self.assertIn("const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');", MARKUP)
+        self.assertIn("_pcSheetBtn.disabled = !who;", MARKUP)
+
+    def test_sheet_button_opens_the_resolved_character(self):
+        self.assertIn("if (who) openSheet(who);", MARKUP)
+
+    def test_both_click_handlers_stop_propagation(self):
+        # #input-panel-header toggles .collapsed on click. A click that bubbled
+        # out of the footer would collapse the panel out from under the overlay
+        # the button just opened.
+        start = MARKUP.index("const _pcSheetBtn")
+        block = MARKUP[start:MARKUP.index("\n_syncPlayerControls();", start)]
+        self.assertEqual(block.count("e.stopPropagation();"), 2)
+
+    @staticmethod
+    def _char_tabs():
+        start = MARKUP.index("function _buildCharTabs")
+        return MARKUP[start:MARKUP.index("\n}", start)]
+
+    def test_controls_resync_when_the_character_tab_changes(self):
+        # Sliced to the click handler, not to the whole function. A bare
+        # `assertIn(..., tabs)` is satisfied by the trailing re-sync below and
+        # stays green with the per-click one deleted — mutation-checked.
+        tabs = self._char_tabs()
+        handler_at = tabs.index("btn.addEventListener('click'")
+        handler = tabs[handler_at:tabs.index("});", handler_at)]
+        self.assertIn("_syncPlayerControls();", handler)
+
+    def test_controls_resync_when_the_roster_rebuilds_the_tabs(self):
+        # _buildCharTabs's identity seed can move _selectedChar the first time
+        # a roster arrives, which changes the Sheet button's target.
+        tabs = self._char_tabs()
+        handler_at = tabs.index("btn.addEventListener('click'")
+        after_loop = tabs[tabs.index("});", handler_at):]
+        self.assertIn("_syncPlayerControls();", after_loop)
+
+    def test_controls_resync_after_the_pad_is_initialised(self):
+        # window._openDiceDrawer does not exist until _initDicePad has run,
+        # which happens below _buildCharTabs([]). Without a re-sync here the
+        # Dice button stays hidden until the first SSE stats payload arrives.
+        pad_block_end = MARKUP.index("_initModeSwitcher(_inputMode);")
+        after = MARKUP[pad_block_end:pad_block_end + 600]
+        self.assertIn("_syncPlayerControls();", after)
+
+
+class DiceButtonIsFreeRollOnly(unittest.TestCase):
+    """The Dice button must never replay a request the player dismissed.
+
+    _diceRequestDismissBtn adds to _dismissedRequestIds and hides the badge but
+    leaves _pendingDiceRequest set. Passing it into the free-roll hook would
+    mean: player declines a Stealth check, clicks Dice for a d6, and gets a pad
+    locked to the GM's 1d20 spec whose Roll posts the dismissed request_id.
+    """
+
+    def test_open_hook_is_exposed_and_takes_no_request(self):
+        self.assertIn("window._openDiceDrawer = () => openDiceDrawer();", MARKUP)
+
+    def test_dice_button_calls_the_hook_with_no_argument(self):
+        self.assertIn("if (window._openDiceDrawer) window._openDiceDrawer();", MARKUP)
+
+    def test_the_hook_never_names_the_pending_request(self):
+        start = MARKUP.index("window._openDiceDrawer =")
+        self.assertNotIn("_pendingDiceRequest", MARKUP[start:MARKUP.index(";", start)])
+
+    def test_a_pending_request_is_replayed_only_from_the_badge(self):
+        self.assertEqual(MARKUP.count("openDiceDrawer(_pendingDiceRequest)"), 1)
+        idx = MARKUP.index("openDiceDrawer(_pendingDiceRequest)")
+        self.assertIn("_diceRequestOpenBtn.addEventListener", MARKUP[idx - 200:idx])
+
+
+class ShippedSourceComments(unittest.TestCase):
+    def test_dice_pad_comment_no_longer_denies_a_full_display_opener(self):
+        self.assertNotIn("Nothing opens it on the full display yet", MARKUP)
+
+    def test_no_plan_task_numbers_in_shipped_source(self):
+        # Plan task numbers are meaningless to anyone reading the template
+        # after the plan is gone.
+        import re
+        self.assertEqual(re.findall(r"Task \d", MARKUP), [])

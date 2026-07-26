@@ -1613,6 +1613,22 @@
   #player-input-text:focus { border-color: rgba(180,140,60,0.45); }
   #player-input-text::placeholder { color: rgba(180,140,60,0.28); }
   #input-footer { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+  /* Player controls sit left of Stage so the primary action keeps the corner. */
+  #pc-sheet-btn, #pc-dice-btn {
+    margin-right: auto;
+    background: rgba(30,20,8,0.7);
+    border: 1px solid rgba(180,140,60,0.45);
+    border-radius: 6px;
+    color: rgba(220,185,100,0.85);
+    cursor: pointer;
+    font: inherit;
+    padding: 6px 12px;
+  }
+  #pc-dice-btn { margin-right: 0; }
+  #pc-sheet-btn:hover:not(:disabled), #pc-dice-btn:hover { border-color: rgba(180,140,60,0.8); }
+  #pc-sheet-btn:disabled { opacity: 0.35; cursor: default; }
+  /* The phone view has roster chips and a dice FAB for the same jobs. */
+  body.input-only #pc-sheet-btn, body.input-only #pc-dice-btn { display: none !important; }
   #skip-turn-btn {
     font-family: 'Cinzel', serif; font-size: 8px;
     letter-spacing: 1.8px; text-transform: uppercase;
@@ -2059,7 +2075,11 @@
     margin: 0 12px 12px;
   }
   #dice-request-badge[hidden] { display: none !important; }
-  body.input-only #dice-request-badge:not([hidden]) { display: flex; }
+  /* Unscoped: a bound player on the full display receives and records GM dice
+     requests too, and the badge is the only path from a request to the pad —
+     the Dice button next to Stage is a free-roll entry point and deliberately
+     does not replay a request the player may have dismissed. */
+  #dice-request-badge:not([hidden]) { display: flex; }
   #dice-request-open {
     flex: 1 1 auto;
     min-height: 44px;
@@ -3180,6 +3200,11 @@
         </div>
         <textarea id="player-input-text" rows="2" placeholder="Enter action or dialogue…" maxlength="500"></textarea>
         <div id="input-footer">
+          <!-- Player controls: reach the sheet and the dice roller without
+               leaving the narration. Both are hidden in the phone view, which
+               has its own roster chips and dice FAB. -->
+          <button id="pc-sheet-btn" type="button" title="Open your character sheet">Sheet</button>
+          <button id="pc-dice-btn" type="button" style="display:none" title="Open the dice roller">Dice</button>
           <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
           <button id="stage-btn">Stage</button>
         </div>
@@ -3214,9 +3239,9 @@
 <div id="dice-drawer" role="presentation" aria-hidden="true">
   <section id="dice-drawer-panel" role="dialog" aria-modal="true" aria-label="Dice roller">
     <button id="dice-drawer-close" type="button" aria-label="Close dice roller">✕</button>
-    <!-- Dice pad, shared by both views: the phone opens it via the FAB or
-         the DM-request badge. Nothing opens it on the full display yet —
-         Task 5 adds the control that will. -->
+    <!-- Dice pad, shared by both views. The phone opens it via the FAB or the
+         DM-request badge; the full display via the Dice button in
+         #input-footer (free rolls) or the same DM-request badge. -->
     <div id="dice-pad">
       <div id="dp-bound" style="display:none"></div>
       <div class="dp-row">
@@ -6305,10 +6330,49 @@ function _buildCharTabs(players) {
         b.classList.toggle('active', b.dataset.char === name)
       );
       _skipTurnBtn.style.display = name === 'Everybody' ? 'none' : '';
+      _syncPlayerControls();
     });
     _charTabs.appendChild(btn);
   });
+  // The identity seed above can change _selectedChar the first time a roster
+  // arrives, so the Sheet button's target and enabled state must follow.
+  _syncPlayerControls();
 }
+
+// ── Full-display player controls ──────────────────────────────────────
+// Sheet resolves to the bound identity, falling back to the active character
+// tab. 'Everybody' is a staging alias, not a character — openSheet would hit
+// its _playerData guard and dead-click — so the button is disabled there.
+// Dice appears only once _initDicePad has run, which happens on the full
+// display only for a bound player. Both are hidden in the phone view by CSS.
+const _pcSheetBtn = document.getElementById('pc-sheet-btn');
+const _pcDiceBtn  = document.getElementById('pc-dice-btn');
+
+function _syncPlayerControls() {
+  if (!_pcSheetBtn || !_pcDiceBtn) return;
+  const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
+  _pcSheetBtn.disabled = !who;
+  _pcSheetBtn.title = who ? `Open ${who}'s character sheet` : 'Pick a character tab first';
+  _pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';
+}
+
+// e.stopPropagation() is load-bearing on both: #input-panel-header toggles
+// .collapsed on click, so a click bubbling up out of the footer would shut the
+// panel out from under the overlay the button just opened.
+if (_pcSheetBtn) {
+  _pcSheetBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
+    if (who) openSheet(who);
+  });
+}
+if (_pcDiceBtn) {
+  _pcDiceBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (window._openDiceDrawer) window._openDiceDrawer();
+  });
+}
+_syncPlayerControls();
 
 function renderPlayerRoster(players) {
   if (!_playerRosterEl) return;
@@ -7109,9 +7173,24 @@ connect();
   // display (GM console, shared screen) initialises nothing — it has no
   // character to roll as, and installing the request handlers there would
   // badge the GM with their own requests.
-  else if (GM_IDENTITY) { _initDicePad({ bind: GM_IDENTITY }); }
+  // The panel is expanded here for the same reason the phone branch does it
+  // above. #input-panel ships with class="collapsed", and .collapsed hides
+  // #input-body outright — which holds the roll pad's request badge and the
+  // Sheet and Dice buttons. The only other auto-expands are staged input
+  // arriving and the autorun countdown, neither of which fires on a fresh
+  // load with an empty queue, so a player following an invite link would land
+  // on a shut "Party Input" bar with no way to reach any of it.
+  else if (GM_IDENTITY) {
+    const ip = document.getElementById('input-panel');
+    if (ip) ip.classList.remove('collapsed');
+    _initDicePad({ bind: GM_IDENTITY });
+  }
   _initModeSwitcher(_inputMode);
 }
+// window._openDiceDrawer only exists once _initDicePad has run, and that
+// happens below _buildCharTabs([]) — so the Dice button's visibility has to be
+// recomputed here rather than waiting for the first SSE stats payload.
+_syncPlayerControls();
 
 // ── Mode switcher ─────────────────────────────────────────────────────────
 // Two entry points to save players from typing the input URL by hand:
@@ -7514,6 +7593,16 @@ function _initDicePad(opts) {
     }
   }
   window._closeDiceDrawer = closeDiceDrawer;
+  // Free-roll entry point for the full display's Dice button, and the exact
+  // counterpart of the phone's FAB handler below. It takes no argument on
+  // purpose: openDiceDrawer's no-request branch unlocks a pad still sitting in
+  // the post-prescribed "rolled" state. Passing _pendingDiceRequest here would
+  // resurrect a *dismissed* request — the dismiss button hides the badge and
+  // records the id, but leaves _pendingDiceRequest set — so a player who
+  // declined a check and then wanted a free d6 would get a pad locked to the
+  // GM's spec whose Roll posts the dismissed request_id. Requests are answered
+  // one way only: the badge's own Open button, which honours the dismissal.
+  window._openDiceDrawer = () => openDiceDrawer();
 
   if (_diceFabBtn) _diceFabBtn.addEventListener('click', () => openDiceDrawer());
   if (_diceDrawerClose) _diceDrawerClose.addEventListener('click', closeDiceDrawer);
