@@ -2,6 +2,22 @@
 
 Newest first. One entry per change; prepend, never edit in place.
 
+## 2026-07-26 — retire the comment stripper, tighten the REASON region
+
+`tests/test_full_display_controls.py` carried a ~36-line `_strip_comments`/
+`CODE_ONLY` lexer read by exactly one test. That test was a proximity scan
+re-founded twice already, and over `CODE_ONLY` it iterated zero times: the
+template's only `aria-disabled` occurrence sits inside a `//` comment, which
+the lexer blanks. Replaced with two exact-string assertions, one per direction
+(footer markup, and the `_pcSheetBtn.setAttribute` call). Both were confirmed
+red against the two mutations the old guard covered. Known gap, stated in the
+test: an aliased element or an `.ariaDisabled =` property write passes.
+
+`REASON`'s `span=400` became `until="\n}\n"`, matching `HELPER` and `HANDLER`
+— the region is 356 chars, so the old span reached 44 chars past the closing
+brace into the next comment. The tautological
+`assert len(CODE_ONLY) == len(MARKUP)` went with the lexer.
+
 ## 2026-07-26 — browser harness for the full-display player controls
 
 Added `tests/conftest.py` (marker registration + a live-server fixture) and

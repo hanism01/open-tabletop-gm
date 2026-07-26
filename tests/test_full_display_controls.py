@@ -87,48 +87,6 @@ class BoundCharacterInjection(unittest.TestCase):
 MARKUP = (REPO / "display" / "templates" / "index.html").read_text()
 
 
-def _blank(match):
-    # Same length, same line count — offsets into CODE_ONLY still match MARKUP.
-    return "".join("\n" if ch == "\n" else " " for ch in match.group(0))
-
-
-_BLOCK_COMMENT = re.compile(r"<!--.*?-->|/\*.*?\*/", re.S)
-
-
-def _strip_comments(text):
-    """`text` with every comment body blanked out, offsets preserved.
-
-    Needed by any assertion that reasons about *proximity* rather than about
-    an exact string. Prose is the enemy there: the template's comments discuss
-    the very identifiers and attributes those assertions look for, so a scan
-    over raw source can pair a mention in one sentence with a mention in the
-    next and report a defect that does not exist. That is the same
-    substring-collision that got the CSS selector scan deleted in round 4;
-    review round 5 found the aria-disabled scan sitting 78 characters from it.
-
-    `//` after `:` is left alone so a `https://` URL does not swallow the code
-    to its right. Comment *bodies* only — a real occurrence in code survives.
-    """
-    text = _BLOCK_COMMENT.sub(_blank, text)
-    out = []
-    for line in text.split("\n"):
-        cut, idx = None, 0
-        while True:
-            idx = line.find("//", idx)
-            if idx == -1:
-                break
-            if idx == 0 or line[idx - 1] != ":":
-                cut = idx
-                break
-            idx += 2
-        out.append(line if cut is None else line[:cut] + " " * (len(line) - cut))
-    return "\n".join(out)
-
-
-CODE_ONLY = _strip_comments(MARKUP)
-assert len(CODE_ONLY) == len(MARKUP)
-
-
 class IdentityResolver(unittest.TestCase):
     def test_identity_prefers_server_value_over_url(self):
         self.assertIn("const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()", MARKUP)
@@ -725,25 +683,30 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC, span=300)
 
     REASON = "const reason = ready ?"
+    # The reason block runs to the end of _syncPlayerControls, and that is the
+    # bound these pins want: same reasoning as HELPER_END and HANDLER_END. The
+    # region is 356 chars, so the span=400 that used to sit here overran the
+    # enclosing function by 44 and could have been satisfied from the next one.
+    REASON_END = "\n}\n"
 
     def test_the_disabled_sheet_button_says_why_it_is_disabled(self):
-        self.assertInRegion("Pick a character tab first", self.REASON, span=400)
-        self.assertInRegion("No sheet data for ", self.REASON, span=400)
+        self.assertInRegion("Pick a character tab first", self.REASON, until=self.REASON_END)
+        self.assertInRegion("No sheet data for ", self.REASON, until=self.REASON_END)
 
     def test_the_reason_reaches_the_accessible_name_not_only_the_tooltip(self):
         # Review M2: `title` on a *disabled* control is rendered at the UA's
         # discretion, so it cannot be the only channel. A disabled button's
         # accessible name is not discretionary — assistive tech still reaches
         # it and reads it — so the same string goes there too.
-        self.assertInRegion("_pcSheetBtn.title = reason;", self.REASON, span=400)
+        self.assertInRegion("_pcSheetBtn.title = reason;", self.REASON, until=self.REASON_END)
         self.assertInRegion(
             "_pcSheetBtn.setAttribute('aria-label', `Sheet — ${reason}`);",
-            self.REASON, span=400)
+            self.REASON, until=self.REASON_END)
 
     def test_the_accessible_name_still_starts_with_the_visible_label(self):
         # WCAG 2.5.3 label-in-name: voice control users say "click Sheet", so
         # an aria-label that does not contain the visible label breaks them.
-        self.assertInRegion("`Sheet — ${reason}`", self.REASON, span=400)
+        self.assertInRegion("`Sheet — ${reason}`", self.REASON, until=self.REASON_END)
 
     def test_aria_disabled_is_not_duplicated_onto_the_native_attribute(self):
         # Considered and declined. `disabled` already maps to the same
@@ -752,35 +715,44 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # tooltip delivery — the actual M2 concern — while adding a second
         # source of truth to keep in sync.
         #
-        # Scoped to this control (review D2). A template-wide ban would red on
-        # a future custom widget that legitimately needs aria-disabled, under a
-        # test whose name is entirely about the sheet button.
+        # Two directions, two exact strings — deliberately not a proximity
+        # scan. Rounds 4 and 5 both went to a scan (first over CSS selectors,
+        # then over a hand-blanked copy of the template) because the attribute
+        # can be set from markup or from script, and both times the scan was
+        # the defect: it read the template's own prose as if it were code. The
+        # measure of how narrow that footing was: today's single occurrence of
+        # the attribute is in a comment, 238 chars from a `#pc-sheet-btn`
+        # mention later in the same paragraph, against a 160-char window that
+        # needs the match to *end* inside it — so 90 characters of prose is all
+        # that stood between the rule and a failure about a defect that does
+        # not exist. (Re-wrapping alone could not have closed that: the three
+        # `\n  // ` line prefixes in between are worth 15 characters even if
+        # the whole paragraph collapsed onto one line. It takes an edit to the
+        # words.) A proximity rule cannot be run over prose that
+        # discusses the identifiers it hunts, and blanking the prose first only
+        # moved the fragility.
         #
-        # Scoped by *subject* rather than by text region (review round 4). The
-        # previous form windowed the footer markup and the _syncPlayerControls
-        # body, which left the click handler — the same button, just outside
-        # both windows — as a green place to put the attribute. Every
-        # occurrence of the attribute anywhere in the template now has to be
-        # far from any mention of this button, whatever syntax sets it.
+        # What is left is the two places the attribute could actually reach
+        # this button. The footer slice is markup only, so any aria-disabled in
+        # it is on one of these buttons. The JS direction is pinned by the
+        # exact call, which is how the click handler — outside every text
+        # window the earlier forms used — stays covered.
         #
-        # Over CODE_ONLY, not MARKUP (review round 5). The template's one
-        # occurrence of the attribute today is in the comment above this
-        # rule's own code, 238 chars from a `#pc-sheet-btn:disabled` mention in
-        # a later sentence of the same comment block — 78 chars of prose short
-        # of reddening. Reflowing that paragraph would have failed this test
-        # with a message about a defect that does not exist. A proximity rule
-        # cannot be run over prose that discusses the identifiers it hunts.
-        idx = CODE_ONLY.find('aria-disabled')
-        while idx != -1:
-            window = CODE_ONLY[max(0, idx - 160):idx + 160]
-            for subject in ('_pcSheetBtn', 'pc-sheet-btn'):
-                self.assertNotIn(
-                    subject, window,
-                    f"aria-disabled appears within 160 chars of {subject!r}:\n"
-                    f"{window}\n"
-                    "`disabled` already carries that accessible state; a second "
-                    "source of truth for it has to stay in sync by hand.")
-            idx = CODE_ONLY.find('aria-disabled', idx + 1)
+        # Known gap, accepted: an alias (`const b = _pcSheetBtn; b.setAttribute
+        # (...)`) or a property write (`_pcSheetBtn.ariaDisabled = 'true'`)
+        # passes both. Neither is prose-sensitive, and the browser harness can
+        # assert the rendered attribute directly if that ever matters.
+        self.assertNotIn('aria-disabled', self._footer())
+        # Counted rather than assertNotIn'd against MARKUP: a failing
+        # assertNotIn prints its whole haystack, and the haystack here is the
+        # 2.5MB template — the same undiagnosable failure TemplateAssertions
+        # exists to avoid. The needle is already the whole diagnosis.
+        js_write = "_pcSheetBtn.setAttribute('aria-disabled'"
+        self.assertEqual(
+            MARKUP.count(js_write), 0,
+            f"{js_write!r} appears in the template. `disabled` already carries "
+            "that accessible state; a second source of truth for it has to be "
+            "kept in sync by hand.")
 
     def test_the_disabled_button_stays_hoverable(self):
         # #stage-btn:disabled and #dm-help-btn:disabled both set
@@ -896,7 +868,6 @@ class ShippedSourceComments(unittest.TestCase):
     def test_no_plan_task_numbers_in_shipped_source(self):
         # Plan task numbers are meaningless to anyone reading the template
         # after the plan is gone.
-        import re
         self.assertEqual(re.findall(r"Task \d", MARKUP), [])
 
 
