@@ -198,7 +198,7 @@ FULL_DISPLAY_CALL_SITE = """
 # chars past the opening anchor, so a fixed-width window sliced from the anchor
 # printed the phone block and a comment and never reached the offending line —
 # hence the closing landmark, which is the last statement of the same block.
-CALL_SITE_ANCHOR = "const _inputMode = _qp.get('view') === 'input'"
+CALL_SITE_ANCHOR = "const _view = (_qp.get('view') || '').trim().toLowerCase();"
 CALL_SITE_END = "_initModeSwitcher(_inputMode);"
 
 
@@ -992,9 +992,40 @@ class StopPropagationHasARealTarget(unittest.TestCase):
                       ".forEach(m => { m.hidden = true; });", MARKUP)
 
 
-class StreamIdentityAndModePredicate(unittest.TestCase):
+class ModePredicate(unittest.TestCase):
+    def _predicate_block(self):
+        # Same CALL_SITE_ANCHOR/CALL_SITE_END pair used by DiceRequestGating's
+        # diagnostic slice above — windowed so a false-positive substring
+        # match elsewhere in the 7,000-line template (e.g. inside a comment)
+        # can't pass this test.
+        start = MARKUP.index(CALL_SITE_ANCHOR)
+        end = MARKUP.index(CALL_SITE_END, start)
+        return MARKUP[start:end]
+
+    def _full_display_handler(self):
+        # 'full-mode-btn' only appears once (the Full Display button built
+        # for the phone view); the first appendChild(btn) after it closes
+        # the same click handler.
+        start = MARKUP.index("btn.id = 'full-mode-btn';")
+        end = MARKUP.index("document.body.appendChild(btn);", start)
+        return MARKUP[start:end]
+
     def test_explicit_view_full_beats_a_char_param(self):
-        self.assertIn("_qp.get('view') !== 'full' &&", MARKUP)
+        self.assertIn("_view !== 'full' &&", self._predicate_block())
+
+    def test_view_is_read_once_and_case_normalized(self):
+        # Both clauses must compare against the same lowercased/trimmed
+        # read, not call _qp.get('view') a second time — a capital-F
+        # ?view=Full must not silently fall through to the char/character
+        # shorthand.
+        self.assertIn("(_qp.get('view') || '').trim().toLowerCase()", self._predicate_block())
+        self.assertEqual(self._predicate_block().count("_qp.get('view')"), 1,
+                          "view should be read once into _view, not re-read per clause")
 
     def test_full_display_button_keeps_the_binding(self):
-        self.assertIn("url.searchParams.set('view', 'full');", MARKUP)
+        handler = self._full_display_handler()
+        # Both assertions matter: 'view' alone lands on ?view=full with no
+        # binding, which for a URL-bound (cookie-less) player resolves
+        # GM_IDENTITY to "" and silently drops their dice pad and sheet.
+        self.assertIn("if (bound) url.searchParams.set('char', bound);", handler)
+        self.assertIn("url.searchParams.set('view', 'full');", handler)

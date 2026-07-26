@@ -7267,8 +7267,9 @@ connect();
   // ?char= alone still implies the phone view, so hand-typed short URLs keep
   // working. An explicit view=full overrides it, which is what lets a player
   // hold a binding in the URL while reading the narration.
-  const _inputMode = _qp.get('view') === 'input'
-    || (_qp.get('view') !== 'full' && (_qp.has('char') || _qp.has('character')));
+  const _view = (_qp.get('view') || '').trim().toLowerCase();
+  const _inputMode = _view === 'input'
+    || (_view !== 'full' && (_qp.has('char') || _qp.has('character')));
   if (_inputMode) {
     document.body.classList.add('input-only');
     const ip = document.getElementById('input-panel');
@@ -7309,9 +7310,9 @@ _syncPlayerControls();
 //   - Full DM view → "Phone Mode" button drops a character picker pulled
 //     from the latest SSE `stats` payload; click a name to jump to
 //     ?view=input&char=<Name>.
-//   - Input view → "Full Display" button bottom-left strips query params
-//     and navigates back to the DM view (useful for reading narration off
-//     the phone without losing the binding next reload).
+//   - Input view → "Full Display" button bottom-left keeps the char binding
+//     but sets view=full, then navigates back to the DM view (so reading
+//     narration off the phone does not cost the binding next reload).
 // Pure client-side. No server changes needed; the dropdown reads the
 // players array that already arrives via the existing /stream SSE.
 let _modePlayersCache = [];
@@ -7343,8 +7344,10 @@ function _initModeSwitcher(inputMode) {
       const url = new URL(window.location.href);
       const bound = (url.searchParams.get('char') || url.searchParams.get('character') || '').trim();
       url.search = '';
-      // Keep the binding so a reload does not lose it, and mark the view so
-      // the predicate above does not drag us straight back to phone mode.
+      // Keep only the URL-supplied binding — never GM_IDENTITY / the session
+      // cookie — so a reload does not lose it without writing a cookie
+      // player's name into a shareable URL. Mark the view too, so the
+      // predicate above does not drag us straight back to phone mode.
       if (bound) url.searchParams.set('char', bound);
       url.searchParams.set('view', 'full');
       window.location.href = url.toString();
