@@ -43,6 +43,24 @@ The `/` route renders for three kinds of caller: an authenticated player (has a 
 - Consumes: `_bound_character(fallback: str = "") -> str` and `_gate`'s `g.identity`, both already present.
 - Produces: `window.GM_BOUND_CHARACTER` — a JS string on every page, `""` when the caller is not an authenticated player. Task 2 reads it.
 
+**As implemented, corrected from the steps below (fix round 2, MEDIUM finding, owner-ruled):**
+`index()` also checks `_is_local()` directly and forces the injected value to
+`""` for a loopback peer, cookie or not. `index` is in `_PLAYER_ENDPOINTS`, so
+`_gate`'s player→local downgrade at `:535` never fires for `/`; sessions last
+30 days with no logout route, so a GM testing a player's invite link in their
+own console browser would otherwise have the full display bound to that
+character for a month. `_bound_character` itself is untouched — every POST
+path still depends on its current behavior; this is a display-only narrowing
+at the `index()` call site. See the design doc's "Open edge" section for the
+full rationale.
+
+**Also correct the Step 1 test code below before running it:** it sets
+`self.app._TOKEN_SECRET = self.secret`, but the app's real module-level
+variable (read by `_resolve_identity`) is `_INVITE_SECRET` — `_TOKEN_SECRET`
+is a typo and does not exist on the module. Use `self.app._INVITE_SECRET =
+self.secret`, matching the pattern already established in
+`tests/test_remote_player_console.py`.
+
 - [ ] **Step 1: Write the failing tests**
 
 Create `tests/test_full_display_controls.py`:

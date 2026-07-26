@@ -43,6 +43,16 @@ class BoundCharacterInjection(unittest.TestCase):
         html = self.client.get("/", headers=TUNNEL).get_data(as_text=True)
         self.assertIn('window.GM_BOUND_CHARACTER = "Mira"', html)
 
+    def test_local_browser_with_join_cookie_gets_empty_bound_character(self):
+        # A GM testing a player's invite link in their own console browser is
+        # loopback, holding a valid session cookie. _gate's un-brick downgrade
+        # never fires for "/" (index is in _PLAYER_ENDPOINTS), and sessions
+        # last 30 days with no logout route, so index() must narrow this
+        # itself: a local peer never gets a bound character, cookie or not.
+        self._session_cookie("Mira")
+        html = self.client.get("/").get_data(as_text=True)  # no tunnel headers => loopback
+        self.assertIn('window.GM_BOUND_CHARACTER = ""', html)
+
     @staticmethod
     def _bound_character_line(html):
         # Up to the statement's own semicolon, so the *real* closing
