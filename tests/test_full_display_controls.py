@@ -482,10 +482,6 @@ class DpNameLockedAffordance(unittest.TestCase):
         self.assertNotIn("body.input-only #dp-name.locked", MARKUP)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class InputPanelExpandsForABoundPlayer(unittest.TestCase):
     """#input-footer is inside #input-body, which .collapsed hides outright.
 
@@ -596,9 +592,22 @@ class TemplateAssertions:
 class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
     SYNC = "function _syncPlayerControls() {"
 
+    _DIV_TAG = re.compile(r'<div\b|</div>')
+
     def _footer(self):
+        # Depth-counted, not "up to the first </div>": #input-footer's own
+        # children are flat today, but a truncation on the first closing tag
+        # silently shortens the haystack the moment any child nests a div,
+        # turning every assertNotIn below into a false pass (review finding
+        # #4 — a nested div made assertNotIn('aria-disabled', ...) pass even
+        # with an aria-disabled attribute present, just past the truncation).
         start = MARKUP.index('<div id="input-footer">')
-        return MARKUP[start:MARKUP.index("</div>", start)]
+        depth = 0
+        for m in self._DIV_TAG.finditer(MARKUP, start):
+            depth += -1 if m.group() == '</div>' else 1
+            if depth == 0:
+                return MARKUP[start:m.end()]
+        raise AssertionError("no matching close tag found for #input-footer")
 
     def test_both_buttons_live_in_the_input_footer(self):
         footer = self._footer()
@@ -634,10 +643,12 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # this control has been fixed for twice. Counting, not just asserting
         # presence, is what makes a re-duplication fail here.
         self.assertEqual(MARKUP.count("_playerData[who]"), 1)
+        self.assertEqual(MARKUP.count("Object.hasOwn(_playerData, who)"), 1)
         self.assertEqual(
             MARKUP.count("const who = GM_IDENTITY || "
                          "(_selectedChar !== 'Everybody' ? _selectedChar : '');"), 1)
-        self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
+        self.assertInRegion(
+            "return { who, ready: !!(who && Object.hasOwn(_playerData, who) && _playerData[who]) };",
                             self.HELPER, until=self.HELPER_END)
 
     # The click handler's extent, same reasoning as HELPER_END. Its true extent
@@ -697,7 +708,8 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # SSE `stats` frame, and stays empty forever if the DM never ran
         # /gm load — while both syncs that matter (the top-level one and the
         # one after the pad-init block) run before any frame arrives.
-        self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
+        self.assertInRegion(
+            "return { who, ready: !!(who && Object.hasOwn(_playerData, who) && _playerData[who]) };",
                             self.HELPER, until=self.HELPER_END)
         self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC, span=300)
 
@@ -1029,3 +1041,7 @@ class ModePredicate(unittest.TestCase):
         # GM_IDENTITY to "" and silently drops their dice pad and sheet.
         self.assertIn("if (bound) url.searchParams.set('char', bound);", handler)
         self.assertIn("url.searchParams.set('view', 'full');", handler)
+
+
+if __name__ == "__main__":
+    unittest.main()

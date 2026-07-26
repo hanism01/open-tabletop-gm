@@ -67,6 +67,23 @@ def test_unbound_display_offers_neither_control(gm_display, context):
     expect(page.locator("#pc-dice-btn")).not_to_be_visible()
 
 
+def test_proto_pollution_via_char_param_does_not_enable_the_sheet(gm_display, context):
+    # ?char=__proto__ makes GM_IDENTITY === '__proto__' (a roster-driven click
+    # could hand openSheet 'constructor' or 'toString' the same way). A bare
+    # bracket lookup, _playerData['__proto__'], resolves to Object.prototype —
+    # truthy even against the empty-roster fixture — which used to read as
+    # "ready", enable the Sheet button, and let openSheet('__proto__') clear
+    # its own falsy guard and render a sheet built from the prototype object.
+    # Object.hasOwn in both _sheetTargetFor and openSheet's guard is the fix;
+    # this exercises both through the real DOM rather than pinning the source.
+    page = context.new_page()
+    page.goto(f"{gm_display.base_url}/?char=__proto__&view=full", wait_until="load")
+    expect(page.locator("#pc-sheet-btn")).to_be_disabled()
+
+    page.evaluate("() => openSheet('__proto__')")
+    expect(page.locator("#sheet-modal")).not_to_have_class("open")
+
+
 def test_bound_player_opens_the_drawer_without_losing_the_narration(gm_display, context):
     # The whole point of putting the drawer on the full display: the phone view
     # hides the narration behind the drawer, and this view must not. (Opening

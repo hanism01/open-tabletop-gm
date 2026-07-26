@@ -5170,7 +5170,12 @@ let _openSheetName = null;
 
 function openSheet(name) {
   _openSheetName = name;
-  const p = _playerData[name];
+  // Object.hasOwn, not _playerData[name] alone: name comes straight off the
+  // URL (?char=__proto__) or a roster click, and a bare bracket lookup finds
+  // Object.prototype for '__proto__' (or Function.prototype members for
+  // 'constructor'/'toString') — truthy, so this guard would wave through a
+  // sheet render built from the prototype instead of dead-clicking.
+  const p = Object.hasOwn(_playerData, name) ? _playerData[name] : undefined;
   if (!p) {
     console.warn(
       `[DnD] openSheet("${name}"): no player data found.`,
@@ -6349,8 +6354,13 @@ const _playerSheetClose = document.getElementById('player-sheet-close');
 // unvalidated free text from #dp-name and is shared across every tab on this
 // origin, so a GM who opened phone mode once would have this display claim to
 // be that character from then on. _initDicePad does not resolve an identity of
-// its own: both call sites pass this constant as opts.bind, and localStorage is
-// reachable only as a last resort inside the pad, when nothing resolved here.
+// its own: both call sites pass this constant as opts.bind. Two reads of
+// gm_player_name remain downstream of this resolver, neither an alternative to
+// it: _initDicePad's own #dp-name field falls back to it only when unbound
+// (reachable — a phone opened with neither a session cookie nor a URL param),
+// and _loadCharacterSheet's fallback chain reads it last (documented in place
+// where it lives) but is unreachable today, since its one caller always passes
+// a non-empty name.
 // This constant is also the SSE subscription's character (_streamChar below).
 const _idParams = new URLSearchParams(location.search);
 const GM_IDENTITY = (window.GM_BOUND_CHARACTER || '').trim()
@@ -6372,9 +6382,13 @@ _inputPanelHdr.addEventListener('click', () => {
 // ── Build character tabs from stats players array ─────────────────
 function _buildCharTabs(players) {
   const names = ['Everybody', ...(players || []).map(p => p.name).filter(Boolean)];
-  // A bound player's tabs open on themselves, not on Everybody. Only once the
-  // roster actually confirms the name — a stale ?char= for someone who left
-  // the party should not select a tab that does not exist.
+  // A bound player's tabs open on themselves, not on Everybody — but only
+  // once the roster confirms the name, so a stale ?char= for someone who
+  // left the party never selects a tab that does not exist. This check runs
+  // every time _buildCharTabs is called (every SSE `stats` frame, not just
+  // the first), so it also reverts a manually-picked tab back to GM_IDENTITY
+  // on the next frame. That repeat re-seed is being addressed by a separate
+  // redesign; this comment describes what ships today, not a fix for it.
   if (GM_IDENTITY && names.includes(GM_IDENTITY)) _selectedChar = GM_IDENTITY;
   _charTabs.innerHTML = '';
   names.forEach(name => {
@@ -6393,8 +6407,9 @@ function _buildCharTabs(players) {
     });
     _charTabs.appendChild(btn);
   });
-  // The identity seed above can change _selectedChar the first time a roster
-  // arrives, so the Sheet button's target and enabled state must follow.
+  // The identity seed above can change _selectedChar on every roster arrival
+  // (it re-runs unconditionally each time _buildCharTabs is called, not just
+  // the first), so the Sheet button's target and enabled state must follow.
   _syncPlayerControls();
 }
 
@@ -6421,7 +6436,11 @@ const _pcDiceBtn  = document.getElementById('pc-dice-btn');
 // the dead click this control has now been fixed for twice.
 function _sheetTargetFor() {
   const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');
-  return { who, ready: !!(who && _playerData[who]) };
+  // Object.hasOwn, not a bracket lookup: `who` can be '__proto__' (e.g.
+  // ?char=__proto__&view=full), and _playerData['__proto__'] resolves to
+  // Object.prototype — truthy — which would read as ready and enable the
+  // Sheet button for data that was never actually loaded.
+  return { who, ready: !!(who && Object.hasOwn(_playerData, who) && _playerData[who]) };
 }
 
 function _syncPlayerControls() {
@@ -7343,6 +7362,12 @@ function _initModeSwitcher(inputMode) {
       e.stopPropagation();
       const url = new URL(window.location.href);
       const bound = (url.searchParams.get('char') || url.searchParams.get('character') || '').trim();
+      // Drops every query param, not just view/char/character — an earlier
+      // version of this handler kept everything else on purpose. Nothing
+      // else in the template reads any param but view (the mode predicate
+      // above) and char / character (the identity resolver) today, so the
+      // drop is inert; it stops being inert the moment a new param is added
+      // here without also being re-added below.
       url.search = '';
       // Keep only the URL-supplied binding — never GM_IDENTITY / the session
       // cookie — so a reload does not lose it without writing a cookie
