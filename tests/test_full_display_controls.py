@@ -560,21 +560,34 @@ class TemplateAssertions:
     `AssertionError: 'const ready = ...' not found in '<!DOCTYPE html>...'`.
     """
 
-    def assertInRegion(self, needle, anchor, span=800):
+    def assertInRegion(self, needle, anchor, span=800, until=None):
         # Uniqueness first. MARKUP.find takes the first match, so a future
         # duplicate anchor would silently window the wrong region and the
         # assertion would report on code it was never about — the same
         # silent-mistarget class _pad_body and _bind_derivation guard against.
+        #
+        # `until` ends the region on a terminator instead of a character
+        # budget (review round 4). A fixed span cannot know where the construct
+        # it is windowing ends, so it runs past the closing brace and a string
+        # pinned as belonging to *this* function is satisfied by the next one.
         count = MARKUP.count(anchor)
         if count != 1:
             self.fail(f"region anchor {anchor!r} appears {count} times in the "
                       f"template; expected exactly one. Expected {needle!r} "
                       f"in its region.")
         at = MARKUP.index(anchor)
-        region = MARKUP[at:at + span]
+        if until is None:
+            end = at + span
+        else:
+            end = MARKUP.find(until, at)
+            if end == -1:
+                self.fail(f"region terminator {until!r} never appears after "
+                          f"anchor {anchor!r}; the region is unbounded.")
+            end += len(until)
+        region = MARKUP[at:end]
         if needle in region:
             return
-        self.fail(f"not found in the {span}-char region after {anchor!r}.\n"
+        self.fail(f"not found in the {len(region)}-char region after {anchor!r}.\n"
                   f"  expected: {needle}\n"
                   f"  region:\n    {region}")
 
@@ -601,13 +614,17 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         self.assertIn("_pcDiceBtn.style.display = window._openDiceDrawer ? '' : 'none';", MARKUP)
 
     HELPER = "function _sheetTargetFor() {"
+    # The helper's own extent, not a character budget. `span=300` reached ~130
+    # chars into _syncPlayerControls, so a string pinned as belonging to the
+    # helper could have been satisfied from inside the sync (review round 4).
+    HELPER_END = "\n}\n"
 
     def test_sheet_button_resolves_who_and_excludes_everybody(self):
         # 'Everybody' is a staging alias, not a character: openSheet('Everybody')
         # hits its _playerData guard and dead-clicks.
         self.assertInRegion(
             "const who = GM_IDENTITY || (_selectedChar !== 'Everybody' ? _selectedChar : '');",
-            self.HELPER, span=300)
+            self.HELPER, until=self.HELPER_END)
 
     def test_the_readiness_rule_is_written_exactly_once(self):
         # Review D1. Two copies — one in the sync, one in the click handler —
@@ -620,7 +637,7 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
             MARKUP.count("const who = GM_IDENTITY || "
                          "(_selectedChar !== 'Everybody' ? _selectedChar : '');"), 1)
         self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
-                            self.HELPER, span=300)
+                            self.HELPER, until=self.HELPER_END)
 
     def test_both_the_sync_and_the_handler_go_through_the_helper(self):
         self.assertEqual(MARKUP.count("const { who, ready } = _sheetTargetFor();"), 2)
@@ -655,7 +672,7 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # /gm load — while both syncs that matter (the top-level one and the
         # one after the pad-init block) run before any frame arrives.
         self.assertInRegion("return { who, ready: !!(who && _playerData[who]) };",
-                            self.HELPER, span=300)
+                            self.HELPER, until=self.HELPER_END)
         self.assertInRegion("_pcSheetBtn.disabled = !ready;", self.SYNC, span=300)
 
     REASON = "const reason = ready ?"
@@ -689,63 +706,38 @@ class PlayerControlButtons(TemplateAssertions, unittest.TestCase):
         # Scoped to this control (review D2). A template-wide ban would red on
         # a future custom widget that legitimately needs aria-disabled, under a
         # test whose name is entirely about the sheet button.
-        self.assertNotIn('aria-disabled', self._footer())
-        sync = MARKUP[MARKUP.index(self.SYNC):MARKUP.index("\n}\n", MARKUP.index(self.SYNC))]
-        self.assertNotIn("setAttribute('aria-disabled'", sync)
-        self.assertNotIn('setAttribute("aria-disabled"', sync)
+        #
+        # Scoped by *subject* rather than by text region (review round 4). The
+        # previous form windowed the footer markup and the _syncPlayerControls
+        # body, which left the click handler — the same button, just outside
+        # both windows — as a green place to put the attribute. Every
+        # occurrence of the attribute anywhere in the template now has to be
+        # far from any mention of this button, whatever syntax sets it.
+        idx = MARKUP.find('aria-disabled')
+        while idx != -1:
+            window = MARKUP[max(0, idx - 160):idx + 160]
+            for subject in ('_pcSheetBtn', 'pc-sheet-btn'):
+                self.assertNotIn(
+                    subject, window,
+                    f"aria-disabled appears within 160 chars of {subject!r}:\n"
+                    f"{window}\n"
+                    "`disabled` already carries that accessible state; a second "
+                    "source of truth for it has to stay in sync by hand.")
+            idx = MARKUP.find('aria-disabled', idx + 1)
 
     def test_the_disabled_button_stays_hoverable(self):
         # #stage-btn:disabled and #dm-help-btn:disabled both set
         # pointer-events: none, which suppresses hit-testing and with it any
         # tooltip. This rule deliberately does not.
         #
-        # The paired assertNotIn this replaced was dead (review D3): it named
-        # the same rule text including its closing brace, so the assertIn above
-        # already failed if anything was inserted. It also could not see a
-        # pointer-events: none arriving from a *different* rule, which is what
-        # test_no_pointer_events_none_rule_can_reach_the_sheet_button covers.
+        # This pins the button's *own* rule and nothing else. Whether some
+        # broader rule elsewhere in the cascade hands it pointer-events: none
+        # is a question about the computed style, which no source-string test
+        # can answer; the hand-rolled selector scan that used to sit here
+        # tried, and got it wrong in both directions (round 4 — see the
+        # report). getComputedStyle answers it in one line, so it belongs to
+        # the browser-harness task.
         self.assertIn("#pc-sheet-btn:disabled { opacity: 0.35; cursor: default; }", MARKUP)
-
-    # Every compound selector of a `pointer-events: none` rule must be anchored
-    # on an id or class (so a bare `button:disabled`, `:disabled` or `*` fails
-    # here), and must not name #pc-sheet-btn or any of its ancestors. This is an
-    # approximation, stated rather than hidden: it does not parse CSS, and a
-    # selector like `[id^="pc-"]` would slip through. It does catch the two
-    # realistic ways a broad rule reaches this button.
-    SHEET_BTN_ANCESTORS = ("#pc-sheet-btn", "#input-footer", "#message-dock",
-                           "#player-console", "#input-body", "#input-panel")
-
-    @staticmethod
-    def _pointer_events_none_selectors():
-        style = MARKUP[MARKUP.index("<style>"):MARKUP.index("</style>")]
-        out, idx = [], 0
-        while True:
-            idx = style.find("pointer-events: none", idx)
-            if idx == -1:
-                return out
-            brace = style.rfind("{", 0, idx)
-            starts = [style.rfind("}", 0, brace) + 1,
-                      style.rfind("*/", 0, brace) + 2,
-                      style.rfind(";", 0, brace) + 1,
-                      style.rfind("<style>", 0, brace) + len("<style>")]
-            out.append(" ".join(style[max(starts):brace].split()))
-            idx += 1
-
-    def test_no_pointer_events_none_rule_can_reach_the_sheet_button(self):
-        selector_lists = self._pointer_events_none_selectors()
-        self.assertGreater(len(selector_lists), 0, "selector scan found nothing — it is broken")
-        for selector_list in selector_lists:
-            for compound in selector_list.split(","):
-                compound = compound.strip()
-                self.assertTrue(
-                    "#" in compound or "." in compound,
-                    f"`pointer-events: none` on an un-anchored selector {compound!r}; "
-                    "it could match #pc-sheet-btn and kill its tooltip")
-                for ancestor in self.SHEET_BTN_ANCESTORS:
-                    self.assertNotIn(
-                        ancestor, compound,
-                        f"`pointer-events: none` on {compound!r} reaches #pc-sheet-btn "
-                        "(directly or through an ancestor) and kills its tooltip")
 
     def test_player_data_is_declared_above_the_sync(self):
         # `const _playerData = {}` — reading it from _syncPlayerControls before

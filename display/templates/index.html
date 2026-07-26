@@ -6388,7 +6388,9 @@ function _syncPlayerControls() {
   // not gain `pointer-events: none` (which #stage-btn:disabled does set), and
   // no broader rule may hand it one, because that suppresses hit-testing and
   // with it any tooltip. That omission started out incidental; it is a
-  // requirement now, and a test pins it.
+  // requirement now. A test pins the button's own rule verbatim; the "no
+  // broader rule" half is not pinned by anything — it is a question about the
+  // computed style, and the suite reads template source only.
   const reason = ready ? `Open ${who}'s character sheet`
                : who  ? `No sheet data for ${who} yet — the DM has not run /gm load`
                       : 'Pick a character tab first';
