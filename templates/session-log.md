@@ -1,6 +1,6 @@
 # Session Log — <campaign-name>
 
-*(No sessions yet. First entry will appear after /dnd end)*
+*(No sessions yet. First entry will appear after /gm end)*
 
 ---
 

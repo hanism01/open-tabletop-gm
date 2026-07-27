@@ -1605,7 +1605,7 @@ def art():
 def stats():
     """Receive character/combat stat updates. Merges players by name, replaces turn_order.
 
-    Pass replace_players=true to replace the entire player list (use on /dnd load to
+    Pass replace_players=true to replace the entire player list (use on /gm load to
     prevent stale characters from a previous campaign persisting in the sidebar).
     """
     data = request.get_json(silent=True) or {}
@@ -2099,7 +2099,7 @@ def audio_sfx(name):
 def clear():
     """Wipe text log AND stats, broadcast clear to all connected browsers.
 
-    Called on /dnd new (fresh campaign). Ensures sidebar shows no stale characters.
+    Called on /gm new (fresh campaign). Ensures sidebar shows no stale characters.
     """
     global _scene_buffer, _current_stats
     with _text_log_lock:

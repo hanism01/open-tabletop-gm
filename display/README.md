@@ -74,7 +74,7 @@ block, dice result, and stat update to the display via `send.py` calls automatic
 To load a campaign with the display already running:
 
 ```
-/dnd load <campaign-name>
+/gm load <campaign-name>
 ```
 
 The skill will detect the running display and push party stats, world time, and factions
@@ -257,7 +257,7 @@ The Sound Effects toggle in the top-right corner of the display enables/disables
 
 **Nothing appears on screen**
 - Confirm Flask is running: `curl -s http://localhost:5001/ping` should return `ok` (use `https://` if started with `--tls`)
-- Confirm you're running the DM skill (`/dnd load`) rather than bare `claude`
+- Confirm you're running the DM skill (`/gm load`) rather than bare `claude`
 - Check the browser console for SSE connection errors
 
 **Browser shows certificate warning**
@@ -311,7 +311,7 @@ open http://localhost:5001   # same machine
 # with --tls: open https://<your-ip>:5001
 
 # Start a session — no wrapper needed
-claude   # then: /dnd load <campaign>
+claude   # then: /gm load <campaign>
 
 # Send narration manually
 python3 $DISPLAY/send.py << 'DNDEND'

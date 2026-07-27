@@ -64,7 +64,7 @@ Usage:
     # Combat ended — clear turn order:
     python3 push_stats.py --turn-clear
 
-    # Clear all text + stats (use on /dnd load — token-aware, works in LAN mode):
+    # Clear all text + stats (use on /gm load — token-aware, works in LAN mode):
     python3 push_stats.py --clear
 """
 
@@ -161,7 +161,7 @@ def main() -> None:
     parser.add_argument("--turn-clear", action="store_true",
                         help="Clear the turn order (combat ended)")
     parser.add_argument("--replace-players", action="store_true",
-                        help="Replace the entire player list (use on /dnd load to clear stale characters)")
+                        help="Replace the entire player list (use on /gm load to clear stale characters)")
     parser.add_argument("--clear", action="store_true",
                         help="Clear all text and stats on the display (token-aware; safe in LAN mode)")
     parser.add_argument("--world-time", metavar="JSON",
